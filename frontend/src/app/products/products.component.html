@@ -1,0 +1,33 @@
+<div class="row">
+  <div class="col-md-8">
+    <table class="table table-striped">
+      <thead>
+        <tr><th>Nome</th><th>Preço</th><th>Descrição</th><th></th></tr>
+      </thead>
+      <tbody>
+        <tr *ngFor="let p of products">
+          <td>{{p.name}}</td>
+          <td>{{p.price | currency:'BRL'}}</td>
+          <td>{{p.description}}</td>
+          <td>
+            <button class="btn btn-sm btn-primary me-2" (click)="edit(p)">Editar</button>
+            <button class="btn btn-sm btn-danger" (click)="remove(p.id)">Remover</button>
+          </td>
+        </tr>
+      </tbody>
+    </table>
+  </div>
+  <div class="col-md-4">
+    <h5>{{ editingId ? 'Editar' : 'Novo' }} produto</h5>
+    <div class="mb-2">
+      <input [(ngModel)]="model.name" class="form-control" placeholder="Nome">
+    </div>
+    <div class="mb-2">
+      <input type="number" [(ngModel)]="model.price" class="form-control" placeholder="Preço">
+    </div>
+    <div class="mb-2">
+      <textarea [(ngModel)]="model.description" class="form-control" placeholder="Descrição"></textarea>
+    </div>
+    <button class="btn btn-success" (click)="save()">Salvar</button>
+  </div>
+</div>
