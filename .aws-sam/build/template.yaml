@@ -1,0 +1,69 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Transform: AWS::Serverless-2016-10-31
+Description: SAM template - DynamoDB table + Lambda (stream trigger + http endpoint)
+Globals:
+  Function:
+    Runtime: nodejs20.x
+    Timeout: 30
+    Environment:
+      Variables:
+        TABLE_NAME:
+          Ref: ProductsTable
+Resources:
+  ProductsTable:
+    Type: AWS::DynamoDB::Table
+    Properties:
+      TableName:
+        Fn::Sub: ${AWS::StackName}-Products
+      AttributeDefinitions:
+      - AttributeName: id
+        AttributeType: S
+      KeySchema:
+      - AttributeName: id
+        KeyType: HASH
+      BillingMode: PAY_PER_REQUEST
+      StreamSpecification:
+        StreamViewType: NEW_AND_OLD_IMAGES
+  ProductsProcessorFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      FunctionName:
+        Fn::Sub: ${AWS::StackName}-ProductsProcessor
+      Handler: streamHandler.handler
+      CodeUri: ProductsProcessorFunction
+      Policies:
+      - DynamoDBCrudPolicy:
+          TableName:
+            Ref: ProductsTable
+      Events:
+        ProductsStream:
+          Type: DynamoDB
+          Properties:
+            Stream:
+              Fn::GetAtt:
+              - ProductsTable
+              - StreamArn
+            StartingPosition: TRIM_HORIZON
+            BatchSize: 100
+        ProductsApi:
+          Type: Api
+          Properties:
+            Path: /Product
+            Method: post
+    Metadata:
+      SamResourceId: ProductsProcessorFunction
+Outputs:
+  ProductsTableName:
+    Description: DynamoDB table name
+    Value:
+      Ref: ProductsTable
+  ProductsProcessorFunctionArn:
+    Description: Lambda function ARN
+    Value:
+      Fn::GetAtt:
+      - ProductsProcessorFunction
+      - Arn
+  ProductsApiEndpoint:
+    Description: API endpoint for manual invocation (POST /Product)
+    Value:
+      Fn::Sub: https://${ServerlessRestApi}.execute-api.${AWS::Region}.amazonaws.com/Prod/Product

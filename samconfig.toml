@@ -1,0 +1,21 @@
+version = 0.1
+
+[prod.deploy.parameters]
+stack_name = "ecommerce-aws"
+resolve_s3 = true
+s3_prefix = "ecommerce-aws"
+region = "us-east-1"
+confirm_changeset = true
+capabilities = "CAPABILITY_IAM"
+disable_rollback = true
+image_repositories = []
+
+[default.deploy.parameters]
+stack_name = "ecommerce-aws"
+resolve_s3 = true
+s3_prefix = "ecommerce-aws"
+region = "us-east-1"
+confirm_changeset = true
+capabilities = "CAPABILITY_IAM"
+disable_rollback = true
+image_repositories = []

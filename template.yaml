@@ -1,0 +1,86 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Transform: AWS::Serverless-2016-10-31
+Description: SAM template - DynamoDB table + Lambda (stream trigger + http endpoint)
+
+Globals:
+  Function:
+    Runtime: nodejs20.x
+    Timeout: 30
+    Environment:
+      Variables:
+        TABLE_NAME: !Ref ProductsTable
+
+Resources:
+
+  ProductsTable:
+    Type: AWS::DynamoDB::Table
+    Properties:
+      TableName: !Sub '${AWS::StackName}-Products'
+      AttributeDefinitions:
+        - AttributeName: id
+          AttributeType: S
+      KeySchema:
+        - AttributeName: id
+          KeyType: HASH
+      BillingMode: PAY_PER_REQUEST
+      StreamSpecification:
+        StreamViewType: NEW_AND_OLD_IMAGES
+
+  ProductsProcessorFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      FunctionName: !Sub '${AWS::StackName}-ProductsProcessor'
+      Handler: streamHandler.handler
+      CodeUri: backend/
+      Policies:
+        - DynamoDBCrudPolicy:
+            TableName: !Ref ProductsTable
+        - Statement:
+            - Effect: Allow
+              Action: sns:Publish
+              Resource: !Ref NotificationTopic
+      Environment:
+        Variables:
+          NOTIFICATION_TOPIC_ARN: !Ref NotificationTopic
+      Events:
+        ProductsStream:
+          Type: DynamoDB
+          Properties:
+            Stream: !GetAtt ProductsTable.StreamArn
+            StartingPosition: TRIM_HORIZON
+            BatchSize: 100
+        ProductsApi:
+          Type: Api
+          Properties:
+            Path: /Product
+            Method: post
+
+  NotificationTopic:
+    Type: AWS::SNS::Topic
+    Properties:
+      TopicName: !Sub '${AWS::StackName}-ProductNotifications'
+
+  NotificationSubscription:
+    Type: AWS::SNS::Subscription
+    Properties:
+      Protocol: email
+      Endpoint: bimbati@mailinator.com
+      TopicArn: !Ref NotificationTopic
+
+
+Outputs:
+  ProductsTableName:
+    Description: "DynamoDB table name"
+    Value: !Ref ProductsTable
+
+  ProductsProcessorFunctionArn:
+    Description: "Lambda function ARN"
+    Value: !GetAtt ProductsProcessorFunction.Arn
+
+  ProductsApiEndpoint:
+    Description: "API endpoint for manual invocation (POST /Product)"
+    Value: !Sub "https://${ServerlessRestApi}.execute-api.${AWS::Region}.amazonaws.com/Prod/Product"
+
+  NotificationTopicArn:
+    Description: "SNS topic ARN for product notifications"
+    Value: !Ref NotificationTopic
