@@ -7,6 +7,6 @@ architecture = "x86_64"
 handler = "streamHandler.handler"
 manifest_hash = ""
 packagetype = "Zip"
-functions = ["ProductsProcessorFunction"]
+functions = ["ProductsProcessorFunction", "ApiFunction"]
 
 [layer_build_definitions]

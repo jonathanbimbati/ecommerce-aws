@@ -13,6 +13,8 @@ Globals:
       Variables:
         TABLE_NAME:
           Ref: ProductsTable
+        DYNAMODB_TABLE:
+          Ref: ProductsTable
 Resources:
   ProductsTable:
     Type: AWS::DynamoDB::Table
@@ -79,13 +81,41 @@ Resources:
           Properties:
             Path: /Product
             Method: post
-        ApiProxy:
-          Type: Api
-          Properties:
-            Path: /api/{proxy+}
-            Method: ANY
     Metadata:
       SamResourceId: ProductsProcessorFunction
+  ApiFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      FunctionName:
+        Fn::Sub: ${AWS::StackName}-Api
+      Handler: lambda/apiHandler.handler
+      CodeUri: ApiFunction
+      Policies:
+      - DynamoDBCrudPolicy:
+          TableName:
+            Ref: ProductsTable
+      - DynamoDBCrudPolicy:
+          TableName:
+            Ref: UsersTable
+      - Statement:
+        - Effect: Allow
+          Action: sns:Publish
+          Resource:
+            Ref: NotificationTopic
+      Environment:
+        Variables:
+          USERS_TABLE:
+            Ref: UsersTable
+          JWT_SECRET:
+            Ref: JwtSecretParam
+      Events:
+        ProxyApi:
+          Type: Api
+          Properties:
+            Path: /{proxy+}
+            Method: ANY
+    Metadata:
+      SamResourceId: ApiFunction
   NotificationTopic:
     Type: AWS::SNS::Topic
     Properties:

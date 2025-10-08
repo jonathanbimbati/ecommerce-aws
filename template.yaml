@@ -110,7 +110,7 @@ Resources:
     Type: AWS::SNS::Subscription
     Properties:
       Protocol: email
-      Endpoint: bimbati@mailinator.com
+      Endpoint: jonathanbimbati@gmail.com
       TopicArn: !Ref NotificationTopic
 
 
