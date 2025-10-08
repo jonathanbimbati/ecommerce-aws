@@ -14,6 +14,7 @@ Globals:
     Environment:
       Variables:
         TABLE_NAME: !Ref ProductsTable
+        DYNAMODB_TABLE: !Ref ProductsTable
 
 Resources:
 
