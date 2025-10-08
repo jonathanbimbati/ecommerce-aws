@@ -45,8 +45,10 @@ router.get('/:id', async (req, res) => {
   }
 });
 
+const jwtAuth = require('../middleware/jwtAuth');
+
 // POST /api/products
-router.post('/', async (req, res) => {
+router.post('/', jwtAuth, async (req, res) => {
   const { name, price, description } = req.body;
   if (!name || typeof price !== 'number') {
     return res.status(400).json({ error: 'Invalid payload: name and numeric price required' });
@@ -66,7 +68,7 @@ router.post('/', async (req, res) => {
 });
 
 // PUT /api/products/:id
-router.put('/:id', async (req, res) => {
+router.put('/:id', jwtAuth, async (req, res) => {
   const updates = {};
   const allowed = ['name', 'price', 'description'];
   for (const key of allowed) {
@@ -91,7 +93,7 @@ router.put('/:id', async (req, res) => {
 });
 
 // DELETE /api/products/:id
-router.delete('/:id', async (req, res) => {
+router.delete('/:id', jwtAuth, async (req, res) => {
   try {
     if (db.TABLE_NAME) {
       const item = await db.getProduct(req.params.id);

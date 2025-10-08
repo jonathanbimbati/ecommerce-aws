@@ -1,6 +1,10 @@
 AWSTemplateFormatVersion: '2010-09-09'
 Transform: AWS::Serverless-2016-10-31
 Description: SAM template - DynamoDB table + Lambda (stream trigger + http endpoint)
+Parameters:
+  JwtSecretParam:
+    Type: String
+    Description: JWT secret value (use SSM SecureString name or pass the raw secret).
 Globals:
   Function:
     Runtime: nodejs20.x
@@ -24,6 +28,18 @@ Resources:
       BillingMode: PAY_PER_REQUEST
       StreamSpecification:
         StreamViewType: NEW_AND_OLD_IMAGES
+  UsersTable:
+    Type: AWS::DynamoDB::Table
+    Properties:
+      TableName:
+        Fn::Sub: ${AWS::StackName}-Users
+      AttributeDefinitions:
+      - AttributeName: id
+        AttributeType: S
+      KeySchema:
+      - AttributeName: id
+        KeyType: HASH
+      BillingMode: PAY_PER_REQUEST
   ProductsProcessorFunction:
     Type: AWS::Serverless::Function
     Properties:
@@ -35,6 +51,19 @@ Resources:
       - DynamoDBCrudPolicy:
           TableName:
             Ref: ProductsTable
+      - Statement:
+        - Effect: Allow
+          Action: sns:Publish
+          Resource:
+            Ref: NotificationTopic
+      Environment:
+        Variables:
+          NOTIFICATION_TOPIC_ARN:
+            Ref: NotificationTopic
+          USERS_TABLE:
+            Ref: UsersTable
+          JWT_SECRET:
+            Ref: JwtSecretParam
       Events:
         ProductsStream:
           Type: DynamoDB
@@ -50,8 +79,25 @@ Resources:
           Properties:
             Path: /Product
             Method: post
+        ApiProxy:
+          Type: Api
+          Properties:
+            Path: /api/{proxy+}
+            Method: ANY
     Metadata:
       SamResourceId: ProductsProcessorFunction
+  NotificationTopic:
+    Type: AWS::SNS::Topic
+    Properties:
+      TopicName:
+        Fn::Sub: ${AWS::StackName}-ProductNotifications
+  NotificationSubscription:
+    Type: AWS::SNS::Subscription
+    Properties:
+      Protocol: email
+      Endpoint: bimbati@mailinator.com
+      TopicArn:
+        Ref: NotificationTopic
 Outputs:
   ProductsTableName:
     Description: DynamoDB table name
@@ -67,3 +113,11 @@ Outputs:
     Description: API endpoint for manual invocation (POST /Product)
     Value:
       Fn::Sub: https://${ServerlessRestApi}.execute-api.${AWS::Region}.amazonaws.com/Prod/Product
+  ApiBaseEndpoint:
+    Description: API base endpoint (use /Prod/api/... for auth/product routes)
+    Value:
+      Fn::Sub: https://${ServerlessRestApi}.execute-api.${AWS::Region}.amazonaws.com/Prod
+  NotificationTopicArn:
+    Description: SNS topic ARN for product notifications
+    Value:
+      Ref: NotificationTopic

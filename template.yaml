@@ -73,7 +73,24 @@ Resources:
           Properties:
             Path: /Product
             Method: post
-        ApiProxy:
+
+  ApiFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      FunctionName: !Sub '${AWS::StackName}-Api'
+      Handler: lambda/apiHandler.handler
+      CodeUri: backend/
+      Policies:
+        - Statement:
+            - Effect: Allow
+              Action: sns:Publish
+              Resource: !Ref NotificationTopic
+      Environment:
+        Variables:
+          USERS_TABLE: !Ref UsersTable
+          JWT_SECRET: !Ref JwtSecretParam
+      Events:
+        ProxyApi:
           Type: Api
           Properties:
             Path: /api/{proxy+}
