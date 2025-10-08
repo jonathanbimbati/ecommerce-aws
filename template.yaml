@@ -81,6 +81,10 @@ Resources:
       Handler: lambda/apiHandler.handler
       CodeUri: backend/
       Policies:
+        - DynamoDBCrudPolicy:
+            TableName: !Ref ProductsTable
+        - DynamoDBCrudPolicy:
+            TableName: !Ref UsersTable
         - Statement:
             - Effect: Allow
               Action: sns:Publish
