@@ -26,6 +26,18 @@ Resources:
       StreamSpecification:
         StreamViewType: NEW_AND_OLD_IMAGES
 
+  UsersTable:
+    Type: AWS::DynamoDB::Table
+    Properties:
+      TableName: !Sub '${AWS::StackName}-Users'
+      AttributeDefinitions:
+        - AttributeName: id
+          AttributeType: S
+      KeySchema:
+        - AttributeName: id
+          KeyType: HASH
+      BillingMode: PAY_PER_REQUEST
+
   ProductsProcessorFunction:
     Type: AWS::Serverless::Function
     Properties:
@@ -42,6 +54,7 @@ Resources:
       Environment:
         Variables:
           NOTIFICATION_TOPIC_ARN: !Ref NotificationTopic
+          USERS_TABLE: !Ref UsersTable
       Events:
         ProductsStream:
           Type: DynamoDB

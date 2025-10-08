@@ -7,7 +7,7 @@ const {
 } = require('@aws-sdk/lib-dynamodb');
 
 const REGION = process.env.AWS_REGION || process.env.AWS_DEFAULT_REGION || 'us-east-1';
-const TABLE_NAME = process.env.DYNAMODB_TABLE || null; // reuse table used for products if present
+const TABLE_NAME = process.env.USERS_TABLE || process.env.DYNAMODB_TABLE || null; // prefer dedicated Users table if available
 
 let ddbDocClient = null;
 if (TABLE_NAME) {
