@@ -93,7 +93,7 @@ Resources:
         ProxyApi:
           Type: Api
           Properties:
-            Path: /api/{proxy+}
+            Path: /{proxy+}
             Method: ANY
 
   NotificationTopic:
