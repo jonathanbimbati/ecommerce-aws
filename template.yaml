@@ -106,6 +106,13 @@ Resources:
     Properties:
       TopicName: !Sub '${AWS::StackName}-ProductNotifications'
 
+  NotificationSubscription:
+    Type: AWS::SNS::Subscription
+    Properties:
+      Protocol: email
+      Endpoint: jonathanbimbati@gmail.com
+      TopicArn: !Ref NotificationTopic
+
 
 Outputs:
   ProductsTableName:
