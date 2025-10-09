@@ -125,8 +125,46 @@ Resources:
     Type: AWS::SNS::Subscription
     Properties:
       Protocol: email
-      Endpoint: bimbati@mailinator.com
+      Endpoint: jonathanbimbati@gmail.com
       TopicArn:
+        Ref: NotificationTopic
+  NotificationConsumerFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      FunctionName:
+        Fn::Sub: ${AWS::StackName}-NotificationConsumer
+      Handler: lambda/notificationHandler.handler
+      CodeUri: NotificationConsumerFunction
+      Policies:
+      - Statement:
+        - Effect: Allow
+          Action:
+          - logs:CreateLogGroup
+          - logs:CreateLogStream
+          - logs:PutLogEvents
+          Resource: '*'
+    Metadata:
+      SamResourceId: NotificationConsumerFunction
+  NotificationLambdaSubscription:
+    Type: AWS::SNS::Subscription
+    Properties:
+      Protocol: lambda
+      Endpoint:
+        Fn::GetAtt:
+        - NotificationConsumerFunction
+        - Arn
+      TopicArn:
+        Ref: NotificationTopic
+  NotificationLambdaPermission:
+    Type: AWS::Lambda::Permission
+    Properties:
+      FunctionName:
+        Fn::GetAtt:
+        - NotificationConsumerFunction
+        - Arn
+      Action: lambda:InvokeFunction
+      Principal: sns.amazonaws.com
+      SourceArn:
         Ref: NotificationTopic
 Outputs:
   ProductsTableName:

@@ -113,6 +113,36 @@ Resources:
       Endpoint: jonathanbimbati@gmail.com
       TopicArn: !Ref NotificationTopic
 
+  NotificationConsumerFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      FunctionName: !Sub '${AWS::StackName}-NotificationConsumer'
+      Handler: lambda/notificationHandler.handler
+      CodeUri: backend/
+      Policies:
+        - Statement:
+            - Effect: Allow
+              Action:
+                - logs:CreateLogGroup
+                - logs:CreateLogStream
+                - logs:PutLogEvents
+              Resource: '*'
+
+  NotificationLambdaSubscription:
+    Type: AWS::SNS::Subscription
+    Properties:
+      Protocol: lambda
+      Endpoint: !GetAtt NotificationConsumerFunction.Arn
+      TopicArn: !Ref NotificationTopic
+
+  NotificationLambdaPermission:
+    Type: AWS::Lambda::Permission
+    Properties:
+      FunctionName: !GetAtt NotificationConsumerFunction.Arn
+      Action: lambda:InvokeFunction
+      Principal: sns.amazonaws.com
+      SourceArn: !Ref NotificationTopic
+
 
 Outputs:
   ProductsTableName:
