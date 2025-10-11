@@ -1,4 +1,4 @@
-exports.handler = async (event) => {
+export async function handler(event) {
   console.log('NotificationHandler received event:', JSON.stringify(event, null, 2));
 
   // SNS messages are in event.Records[].Sns
@@ -10,4 +10,4 @@ exports.handler = async (event) => {
   }
 
   return { status: 'ok' };
-};
+}

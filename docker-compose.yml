@@ -1,0 +1,23 @@
+services:
+  backend:
+    build: ./backend
+    ports:
+      - "3000:3000"
+    environment:
+      - PORT=3000
+      - DYNAMODB_TABLE=${DYNAMODB_TABLE}
+      - USERS_TABLE=${USERS_TABLE}
+      - AWS_REGION=${AWS_REGION}
+      - AWS_PROFILE=${AWS_PROFILE}
+    volumes:
+      - ./backend:/usr/src/app
+      # Mount AWS credentials from host for the container to use (dev only)
+      - ${USERPROFILE}/.aws:/root/.aws:ro
+  frontend:
+    build: ./frontend
+    ports:
+      - "4200:80"
+    depends_on:
+      - backend
+    environment:
+      - API_URL=http://localhost:3000

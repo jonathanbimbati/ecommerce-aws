@@ -1,14 +1,14 @@
-const express = require('express');
-const cors = require('cors');
-const bodyParser = require('body-parser');
-const productsRouter = require('./routes/products');
-const authRouter = require('./routes/auth');
+import express from 'express';
+import cors from 'cors';
+import { json } from 'body-parser';
+import productsRouter from './routes/products';
+import authRouter from './routes/auth';
 
 const app = express();
 const PORT = process.env.PORT || 3000;
 
 app.use(cors());
-app.use(bodyParser.json());
+app.use(json());
 
 app.use('/api/products', productsRouter);
 app.use('/api/auth', authRouter);
@@ -23,4 +23,4 @@ if (require.main === module) {
   });
 }
 
-module.exports = app;
+export default app;

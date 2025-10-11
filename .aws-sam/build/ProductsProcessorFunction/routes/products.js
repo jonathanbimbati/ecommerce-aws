@@ -1,12 +1,12 @@
-const express = require('express');
-const { v4: uuidv4 } = require('uuid');
-const db = require('../db/dynamo');
+import { Router } from 'express';
+import { v4 as uuidv4 } from 'uuid';
+import { TABLE_NAME, listProducts, getProduct, createProduct, updateProduct, deleteProduct } from '../db/dynamo';
 
-const router = express.Router();
+const router = Router();
 
 // Simple in-memory fallback if DYNAMODB_TABLE isn't configured
 const products = new Map();
-if (!db.TABLE_NAME) {
+if (!TABLE_NAME) {
   const seedProducts = [
     { id: uuidv4(), name: 'Camiseta', price: 39.9, description: 'Camiseta 100% algodão' },
     { id: uuidv4(), name: 'Caneca', price: 19.9, description: 'Caneca de cerâmica 300ml' }
@@ -17,8 +17,8 @@ if (!db.TABLE_NAME) {
 // GET /api/products
 router.get('/', async (req, res) => {
   try {
-    if (db.TABLE_NAME) {
-      const items = await db.listProducts();
+    if (TABLE_NAME) {
+      const items = await listProducts();
       return res.json(items);
     }
     return res.json(Array.from(products.values()));
@@ -31,8 +31,8 @@ router.get('/', async (req, res) => {
 // GET /api/products/:id
 router.get('/:id', async (req, res) => {
   try {
-    if (db.TABLE_NAME) {
-      const item = await db.getProduct(req.params.id);
+    if (TABLE_NAME) {
+      const item = await getProduct(req.params.id);
       if (!item) return res.status(404).json({ error: 'Product not found' });
       return res.json(item);
     }
@@ -45,7 +45,7 @@ router.get('/:id', async (req, res) => {
   }
 });
 
-const jwtAuth = require('../middleware/jwtAuth');
+import jwtAuth from '../middleware/jwtAuth';
 
 // POST /api/products
 router.post('/', jwtAuth, async (req, res) => {
@@ -55,8 +55,8 @@ router.post('/', jwtAuth, async (req, res) => {
   }
   const item = { id: uuidv4(), name, price, description: description || '' };
   try {
-    if (db.TABLE_NAME) {
-      await db.createProduct(item);
+    if (TABLE_NAME) {
+      await createProduct(item);
       return res.status(201).json(item);
     }
     products.set(item.id, item);
@@ -76,8 +76,8 @@ router.put('/:id', jwtAuth, async (req, res) => {
   }
   if (Object.keys(updates).length === 0) return res.status(400).json({ error: 'No valid fields provided for update' });
   try {
-    if (db.TABLE_NAME) {
-      const updated = await db.updateProduct(req.params.id, updates);
+    if (TABLE_NAME) {
+      const updated = await updateProduct(req.params.id, updates);
       if (!updated) return res.status(404).json({ error: 'Product not found' });
       return res.json(updated);
     }
@@ -95,10 +95,10 @@ router.put('/:id', jwtAuth, async (req, res) => {
 // DELETE /api/products/:id
 router.delete('/:id', jwtAuth, async (req, res) => {
   try {
-    if (db.TABLE_NAME) {
-      const item = await db.getProduct(req.params.id);
+    if (TABLE_NAME) {
+      const item = await getProduct(req.params.id);
       if (!item) return res.status(404).json({ error: 'Product not found' });
-      await db.deleteProduct(req.params.id);
+      await deleteProduct(req.params.id);
       return res.status(204).send();
     }
     const existed = products.delete(req.params.id);
@@ -110,4 +110,4 @@ router.delete('/:id', jwtAuth, async (req, res) => {
   }
 });
 
-module.exports = router;
+export default router;

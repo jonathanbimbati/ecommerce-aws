@@ -1,7 +1,7 @@
-const http = require('http');
-const app = require('../index');
+import { request as _request } from 'http';
+import { listen } from '../index';
 
-const server = app.listen(0, async () => {
+const server = listen(0, async () => {
   const port = server.address().port;
   const base = `http://localhost:${port}`;
   console.log('Running minimal tests against', base);
@@ -33,7 +33,7 @@ function request(method, path, data) {
     }
   };
   return new Promise((resolve, reject) => {
-    const req = http.request(options, res => {
+    const req = _request(options, res => {
       let body = '';
       res.setEncoding('utf8');
       res.on('data', chunk => (body += chunk));

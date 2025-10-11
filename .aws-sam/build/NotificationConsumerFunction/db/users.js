@@ -1,10 +1,5 @@
-const { DynamoDBClient } = require('@aws-sdk/client-dynamodb');
-const {
-  DynamoDBDocumentClient,
-  GetCommand,
-  PutCommand,
-  ScanCommand
-} = require('@aws-sdk/lib-dynamodb');
+import { DynamoDBClient } from '@aws-sdk/client-dynamodb';
+import { DynamoDBDocumentClient, GetCommand, PutCommand, ScanCommand } from '@aws-sdk/lib-dynamodb';
 
 const REGION = process.env.AWS_REGION || process.env.AWS_DEFAULT_REGION || 'us-east-1';
 const TABLE_NAME = process.env.USERS_TABLE || process.env.DYNAMODB_TABLE || null; // prefer dedicated Users table if available
@@ -41,4 +36,4 @@ async function listUsers() {
   return res.Items || [];
 }
 
-module.exports = { getUserByUsername, createUser, listUsers, TABLE_NAME };
+export default { getUserByUsername, createUser, listUsers, TABLE_NAME };

@@ -1,6 +1,6 @@
-const { SNSClient, PublishCommand } = require('@aws-sdk/client-sns');
+import { SNSClient, PublishCommand } from '@aws-sdk/client-sns';
 
-exports.handler = async (event) => {
+export async function handler(event) {
   const isStream = Array.isArray(event.Records);
   console.log('Lambda invoked - event type:', isStream ? 'DynamoDBStream' : 'HttpApi');
 
@@ -55,4 +55,4 @@ exports.handler = async (event) => {
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ message: 'ProductsProcessorFunction alive', received: event })
   };
-};
+}

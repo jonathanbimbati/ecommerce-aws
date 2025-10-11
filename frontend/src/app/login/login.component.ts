@@ -31,8 +31,9 @@ export class LoginComponent {
   password = '';
   constructor(private auth: AuthService, private router: Router) {}
 
-  doLogin() {
-    if (this.auth.login(this.username, this.password)) {
+  async doLogin() {
+    const ok = await this.auth.login(this.username, this.password);
+    if (ok) {
       this.router.navigate(['/']);
     } else {
       alert('Credenciais inválidas');

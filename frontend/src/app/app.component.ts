@@ -4,7 +4,7 @@ import { ProductsComponent } from './products/products.component';
 import { LoginComponent } from './login/login.component';
 import { authGuard } from './auth.guard';
 
-const routes: Routes = [
+export const appRoutes: Routes = [
   { path: 'login', component: LoginComponent },
   { path: '', component: ProductsComponent, canActivate: [authGuard] },
   { path: '**', redirectTo: '' }

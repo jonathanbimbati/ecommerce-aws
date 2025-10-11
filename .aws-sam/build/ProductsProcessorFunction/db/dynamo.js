@@ -1,12 +1,5 @@
-const { DynamoDBClient } = require('@aws-sdk/client-dynamodb');
-const {
-  DynamoDBDocumentClient,
-  GetCommand,
-  ScanCommand,
-  PutCommand,
-  UpdateCommand,
-  DeleteCommand
-} = require('@aws-sdk/lib-dynamodb');
+import { DynamoDBClient } from '@aws-sdk/client-dynamodb';
+import { DynamoDBDocumentClient, GetCommand, ScanCommand, PutCommand, UpdateCommand, DeleteCommand } from '@aws-sdk/lib-dynamodb';
 
 const REGION = process.env.AWS_REGION || process.env.AWS_DEFAULT_REGION || 'us-east-1';
 const TABLE_NAME = process.env.DYNAMODB_TABLE || null; // if null, caller should fallback to in-memory
@@ -75,7 +68,7 @@ async function deleteProduct(id) {
   await ddbDocClient.send(cmd);
 }
 
-module.exports = {
+export default {
   getProduct,
   listProducts,
   createProduct,

@@ -1,6 +1,6 @@
-const jwt = require('jsonwebtoken');
+import { verify } from 'jsonwebtoken';
 
-module.exports = function (req, res, next) {
+export default function (req, res, next) {
   const auth = req.headers.authorization || req.headers.Authorization;
   if (!auth) return res.status(401).json({ error: 'Missing Authorization header' });
   const parts = auth.split(' ');
@@ -10,7 +10,7 @@ module.exports = function (req, res, next) {
   const token = parts[1];
   try {
     const secret = process.env.JWT_SECRET || 'dev-secret';
-    const payload = jwt.verify(token, secret);
+    const payload = verify(token, secret);
     req.user = payload;
     return next();
   } catch (err) {
