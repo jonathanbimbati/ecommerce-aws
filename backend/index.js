@@ -39,6 +39,16 @@ app.use(bodyParser.json());
 app.use('/api/products', productsRouter);
 app.use('/api/auth', authRouter);
 
+// Health endpoint used by Kubernetes liveness/readiness probes
+app.get('/api/health', (req, res) => {
+  const payload = {
+    status: 'ok',
+    DYNAMODB_TABLE: process.env.DYNAMODB_TABLE || null,
+    AWS_REGION: process.env.AWS_REGION || process.env.AWS_DEFAULT_REGION || null
+  };
+  res.json(payload);
+});
+
 app.get('/', (req, res) => {
   res.json({ message: 'E-commerce backend is running' });
 });
