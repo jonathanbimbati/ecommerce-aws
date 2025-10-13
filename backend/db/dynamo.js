@@ -9,39 +9,48 @@ const {
 } = require('@aws-sdk/lib-dynamodb');
 
 const REGION = process.env.AWS_REGION || process.env.AWS_DEFAULT_REGION || 'us-east-1';
-const TABLE_NAME = process.env.DYNAMODB_TABLE || null; // if null, caller should fallback to in-memory
 
+// Lazy initialization: build the DynamoDB Document client when DYNAMODB_TABLE is present at runtime.
 let ddbDocClient = null;
-if (TABLE_NAME) {
-  const client = new DynamoDBClient({ region: REGION });
-  ddbDocClient = DynamoDBDocumentClient.from(client, {
-    marshallOptions: { removeUndefinedValues: true, convertEmptyValues: true }
-  });
+
+function ensureClient() {
+  const table = process.env.DYNAMODB_TABLE || null;
+  if (!table) return false;
+  if (!ddbDocClient) {
+    const client = new DynamoDBClient({ region: process.env.AWS_REGION || process.env.AWS_DEFAULT_REGION || REGION });
+    ddbDocClient = DynamoDBDocumentClient.from(client, {
+      marshallOptions: { removeUndefinedValues: true, convertEmptyValues: true }
+    });
+  }
+  return true;
 }
 
 async function getProduct(id) {
-  if (!ddbDocClient) throw new Error('DynamoDB client not configured');
+  if (!ensureClient()) throw new Error('DynamoDB client not configured');
+  const TABLE_NAME = process.env.DYNAMODB_TABLE;
   const cmd = new GetCommand({ TableName: TABLE_NAME, Key: { id } });
   const res = await ddbDocClient.send(cmd);
   return res.Item || null;
 }
 
 async function listProducts() {
-  if (!ddbDocClient) throw new Error('DynamoDB client not configured');
+  if (!ensureClient()) throw new Error('DynamoDB client not configured');
+  const TABLE_NAME = process.env.DYNAMODB_TABLE;
   const cmd = new ScanCommand({ TableName: TABLE_NAME });
   const res = await ddbDocClient.send(cmd);
   return res.Items || [];
 }
 
 async function createProduct(item) {
-  if (!ddbDocClient) throw new Error('DynamoDB client not configured');
+  if (!ensureClient()) throw new Error('DynamoDB client not configured');
+  const TABLE_NAME = process.env.DYNAMODB_TABLE;
   const cmd = new PutCommand({ TableName: TABLE_NAME, Item: item });
   await ddbDocClient.send(cmd);
   return item;
 }
 
 async function updateProduct(id, updates) {
-  if (!ddbDocClient) throw new Error('DynamoDB client not configured');
+  if (!ensureClient()) throw new Error('DynamoDB client not configured');
   const expressions = [];
   const exprAttrNames = {};
   const exprAttrValues = {};
@@ -57,8 +66,8 @@ async function updateProduct(id, updates) {
   if (expressions.length === 0) return await getProduct(id);
 
   const updateExpression = 'SET ' + expressions.join(', ');
+  const TABLE_NAME = process.env.DYNAMODB_TABLE;
   const cmd = new UpdateCommand({
-    TableName: TABLE_NAME,
     Key: { id },
     UpdateExpression: updateExpression,
     ExpressionAttributeNames: exprAttrNames,
@@ -70,7 +79,8 @@ async function updateProduct(id, updates) {
 }
 
 async function deleteProduct(id) {
-  if (!ddbDocClient) throw new Error('DynamoDB client not configured');
+  if (!ensureClient()) throw new Error('DynamoDB client not configured');
+  const TABLE_NAME = process.env.DYNAMODB_TABLE;
   const cmd = new DeleteCommand({ TableName: TABLE_NAME, Key: { id } });
   await ddbDocClient.send(cmd);
 }
@@ -81,6 +91,7 @@ module.exports = {
   createProduct,
   updateProduct,
   deleteProduct,
-  TABLE_NAME,
-  REGION
+  // dynamic views of table/region
+  get TABLE_NAME() { return process.env.DYNAMODB_TABLE || null },
+  get REGION() { return process.env.AWS_REGION || process.env.AWS_DEFAULT_REGION || REGION }
 };
