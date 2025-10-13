@@ -38,8 +38,6 @@ app.use(bodyParser.json());
 
 app.use('/api/products', productsRouter);
 app.use('/api/auth', authRouter);
-const debugRouter = require('./routes/debug');
-app.use('/api/debug', debugRouter);
 
 app.get('/', (req, res) => {
   res.json({ message: 'E-commerce backend is running' });
