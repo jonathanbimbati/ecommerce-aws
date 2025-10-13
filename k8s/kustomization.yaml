@@ -1,0 +1,16 @@
+apiVersion: kustomize.config.k8s.io/v1
+kind: Kustomization
+
+resources:
+  - backend-deployment.yaml
+  - frontend-deployment.yaml
+  - service-account.yaml
+  - secret-jwt.yaml
+
+images:
+  - name: ecommerce-aws-backend
+    newName: 199299155478.dkr.ecr.us-east-1.amazonaws.com/ecommerce-aws-backend
+    newTag: latest
+  - name: ecommerce-aws-frontend
+    newName: 199299155478.dkr.ecr.us-east-1.amazonaws.com/ecommerce-aws-frontend
+    newTag: latest
