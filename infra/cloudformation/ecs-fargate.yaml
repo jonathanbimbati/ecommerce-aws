@@ -1,196 +1,51 @@
 AWSTemplateFormatVersion: '2010-09-09'
-Description: ECS Fargate cluster with ALB, services (frontend+backend) and autoscaling
+Description: Skeleton template for ECS Fargate Service with ALB integration. Fill in VPC/subnet/sg ids before deployment or extend with lookups.
+
 Parameters:
-  VpcId:
-    Type: AWS::EC2::VPC::Id
-  PublicSubnets:
-    Type: List<AWS::EC2::Subnet::Id>
-  PrivateSubnets:
-    Type: List<AWS::EC2::Subnet::Id>
-  BackendImage:
+  ClusterName:
     Type: String
-  FrontendImage:
+    Default: ecommerce-ecs-cluster
+  ServiceName:
     Type: String
-  DesiredCount:
-    Type: Number
-    Default: 2
-  Cpu:
-    Type: Number
-    Default: 256
-  Memory:
-    Type: Number
-    Default: 512
+    Default: ecommerce-backend-service
+  ContainerImage:
+    Type: String
+    Description: ECR image uri (including digest or tag)
+
 Resources:
-  Cluster:
+  ECSCluster:
     Type: AWS::ECS::Cluster
     Properties:
-      ClusterName: ecommerce-aws-cluster
+      ClusterName: !Ref ClusterName
 
-  ALBSG:
-    Type: AWS::EC2::SecurityGroup
-    Properties:
-      GroupDescription: ALB SG
-      VpcId: !Ref VpcId
-
-  ServiceSG:
-    Type: AWS::EC2::SecurityGroup
-    Properties:
-      GroupDescription: Service SG
-      VpcId: !Ref VpcId
-
-  Alb:
-    Type: AWS::ElasticLoadBalancingV2::LoadBalancer
-    Properties:
-      Name: ecommerce-aws-alb
-      Scheme: internet-facing
-      Subnets: !Ref PublicSubnets
-      SecurityGroups: [!Ref ALBSG]
-
-  TGFrontend:
-    Type: AWS::ElasticLoadBalancingV2::TargetGroup
-    Properties:
-      VpcId: !Ref VpcId
-      Protocol: HTTP
-      Port: 80
-      TargetType: ip
-
-  TGBackend:
-    Type: AWS::ElasticLoadBalancingV2::TargetGroup
-    Properties:
-      VpcId: !Ref VpcId
-      Protocol: HTTP
-      Port: 3000
-      TargetType: ip
-
-  Listener80:
-    Type: AWS::ElasticLoadBalancingV2::Listener
-    Properties:
-      LoadBalancerArn: !Ref Alb
-      Port: 80
-      Protocol: HTTP
-      DefaultActions:
-        - Type: forward
-          TargetGroupArn: !Ref TGFrontend
-
-  ListenerRuleApi:
-    Type: AWS::ElasticLoadBalancingV2::ListenerRule
-    Properties:
-      ListenerArn: !Ref Listener80
-      Priority: 10
-      Conditions:
-        - Field: path-pattern
-          Values: ["/api/*"]
-      Actions:
-        - Type: forward
-          TargetGroupArn: !Ref TGBackend
-
-  ExecutionRole:
-    Type: AWS::IAM::Role
-    Properties:
-      AssumeRolePolicyDocument:
-        Version: '2012-10-17'
-        Statement:
-          - Effect: Allow
-            Principal: { Service: ecs-tasks.amazonaws.com }
-            Action: sts:AssumeRole
-      ManagedPolicyArns:
-        - arn:aws:iam::aws:policy/service-role/AmazonECSTaskExecutionRolePolicy
-
-  TaskRole:
-    Type: AWS::IAM::Role
-    Properties:
-      AssumeRolePolicyDocument:
-        Version: '2012-10-17'
-        Statement:
-          - Effect: Allow
-            Principal: { Service: ecs-tasks.amazonaws.com }
-            Action: sts:AssumeRole
-      Policies:
-        - PolicyName: DynamoDbAccess
-          PolicyDocument:
-            Version: '2012-10-17'
-            Statement:
-              - Effect: Allow
-                Action:
-                  - dynamodb:DescribeTable
-                  - dynamodb:GetItem
-                  - dynamodb:PutItem
-                  - dynamodb:Scan
-                  - dynamodb:UpdateItem
-                  - dynamodb:DeleteItem
-                Resource: "*"
-
-  BackendTask:
+  TaskDefinition:
     Type: AWS::ECS::TaskDefinition
     Properties:
-      Cpu: !Ref Cpu
-      Memory: !Ref Memory
+      Family: !Ref ServiceName
+      Cpu: '256'
+      Memory: '512'
       NetworkMode: awsvpc
       RequiresCompatibilities: [FARGATE]
-      ExecutionRoleArn: !Ref ExecutionRole
-      TaskRoleArn: !Ref TaskRole
       ContainerDefinitions:
         - Name: backend
-          Image: !Ref BackendImage
+          Image: !Ref ContainerImage
           PortMappings:
             - ContainerPort: 3000
+              Protocol: tcp
           Environment:
-            - Name: NODE_ENV
-              Value: production
-            - Name: AWS_REGION
-              Value: !Ref AWS::Region
             - Name: DYNAMODB_TABLE
               Value: ecommerce-aws-Products
 
-  FrontendTask:
-    Type: AWS::ECS::TaskDefinition
-    Properties:
-      Cpu: !Ref Cpu
-      Memory: !Ref Memory
-      NetworkMode: awsvpc
-      RequiresCompatibilities: [FARGATE]
-      ExecutionRoleArn: !Ref ExecutionRole
-      ContainerDefinitions:
-        - Name: frontend
-          Image: !Ref FrontendImage
-          PortMappings:
-            - ContainerPort: 80
-
-  BackendService:
-    Type: AWS::ECS::Service
-    DependsOn: ListenerRuleApi
-    Properties:
-      Cluster: !Ref Cluster
-      LaunchType: FARGATE
-      DesiredCount: !Ref DesiredCount
-      TaskDefinition: !Ref BackendTask
-      NetworkConfiguration:
-        AwsvpcConfiguration:
-          AssignPublicIp: DISABLED
-          SecurityGroups: [!Ref ServiceSG]
-          Subnets: !Ref PrivateSubnets
-      LoadBalancers:
-        - ContainerName: backend
-          ContainerPort: 3000
-          TargetGroupArn: !Ref TGBackend
-
-  FrontendService:
+  Service:
     Type: AWS::ECS::Service
     Properties:
-      Cluster: !Ref Cluster
+      Cluster: !Ref ECSCluster
+      ServiceName: !Ref ServiceName
+      TaskDefinition: !Ref TaskDefinition
       LaunchType: FARGATE
-      DesiredCount: !Ref DesiredCount
-      TaskDefinition: !Ref FrontendTask
-      NetworkConfiguration:
-        AwsvpcConfiguration:
-          AssignPublicIp: DISABLED
-          SecurityGroups: [!Ref ServiceSG]
-          Subnets: !Ref PrivateSubnets
-      LoadBalancers:
-        - ContainerName: frontend
-          ContainerPort: 80
-          TargetGroupArn: !Ref TGFrontend
+      DesiredCount: 2
 
 Outputs:
-  ALBDNS:
-    Value: !GetAtt Alb.DNSName
+  ECSClusterName:
+    Value: !Ref ECSCluster
+    Description: Name of created ECS cluster

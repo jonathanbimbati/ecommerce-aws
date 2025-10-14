@@ -1,47 +1,27 @@
 AWSTemplateFormatVersion: '2010-09-09'
-Description: SNS topic and EventBridge rules for scaling notifications (scale in/out)
+Description: SNS topic and sample CloudWatch alarm resources to notify scale events.
+
 Parameters:
-  TopicEmail:
+  TopicName:
     Type: String
-    Default: ''
+    Default: ecommerce-scale-notifications
+
 Resources:
   ScaleTopic:
     Type: AWS::SNS::Topic
     Properties:
-      TopicName: ecommerce-aws-scale-events
-  TopicSubscription:
-    Condition: HasEmail
-    Type: AWS::SNS::Subscription
-    Properties:
-      Protocol: email
-      Endpoint: !Ref TopicEmail
-      TopicArn: !Ref ScaleTopic
+      TopicName: !Ref TopicName
 
-  BusRuleScaleOut:
-    Type: AWS::Events::Rule
+  ScaleTopicPolicy:
+    Type: AWS::SNS::TopicPolicy
     Properties:
-      Name: ecommerce-aws-scale-out
-      EventPattern:
-        source: ["aws.autoscaling"]
-        detail-type: ["EC2 Instance Launch Successful", "EC2 Instance Launch Unsuccessful"]
-      Targets:
-        - Arn: !Ref ScaleTopic
-          Id: scaleOutToSns
-
-  BusRuleScaleIn:
-    Type: AWS::Events::Rule
-    Properties:
-      Name: ecommerce-aws-scale-in
-      EventPattern:
-        source: ["aws.autoscaling"]
-        detail-type: ["EC2 Instance Terminate Successful", "EC2 Instance Terminate Unsuccessful"]
-      Targets:
-        - Arn: !Ref ScaleTopic
-          Id: scaleInToSns
-
-Conditions:
-  HasEmail: !Not [!Equals [!Ref TopicEmail, ""]]
+      Topics:
+        - !Ref ScaleTopic
+      PolicyDocument:
+        Version: '2012-10-17'
+        Statement: []
 
 Outputs:
-  TopicArn:
+  ScaleTopicArn:
     Value: !Ref ScaleTopic
+    Description: SNS topic ARN for scaling notifications

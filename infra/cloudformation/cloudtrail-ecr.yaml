@@ -1,38 +1,56 @@
 AWSTemplateFormatVersion: '2010-09-09'
-Description: Enable CloudTrail for ECR events and S3 log bucket
+Description: CloudTrail that records management events and ECR data events into an S3 bucket.
+
 Parameters:
   TrailName:
     Type: String
-    Default: ecommerce-aws-trail
-  LogBucketName:
+    Default: ecommerce-aws-cloudtrail
+  S3BucketName:
     Type: String
-    Default: ecommerce-aws-cloudtrail-logs
+    Default: !Sub "ecommerce-aws-cloudtrail-logs-${AWS::AccountId}-${AWS::Region}"
+
 Resources:
-  TrailBucket:
+  CloudTrailBucket:
     Type: AWS::S3::Bucket
     Properties:
-      BucketName: !Ref LogBucketName
-      PublicAccessBlockConfiguration:
-        BlockPublicAcls: true
-        BlockPublicPolicy: true
-        IgnorePublicAcls: true
-        RestrictPublicBuckets: true
-      BucketEncryption:
-        ServerSideEncryptionConfiguration:
-          - ServerSideEncryptionByDefault:
-              SSEAlgorithm: AES256
+      BucketName: !Ref S3BucketName
+      VersioningConfiguration:
+        Status: Enabled
 
-  Trail:
+  CloudTrailLogPolicy:
+    Type: AWS::S3::BucketPolicy
+    Properties:
+      Bucket: !Ref CloudTrailBucket
+      PolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Sid: AllowCloudTrailPutObject
+            Effect: Allow
+            Principal:
+              Service: cloudtrail.amazonaws.com
+            Action: s3:PutObject
+            Resource: !Sub "arn:aws:s3:::${S3BucketName}/AWSLogs/${AWS::AccountId}/*"
+
+  CloudTrail:
     Type: AWS::CloudTrail::Trail
     Properties:
       TrailName: !Ref TrailName
-      S3BucketName: !Ref LogBucketName
-      IsLogging: true
-      IncludeGlobalServiceEvents: true
+      S3BucketName: !Ref CloudTrailBucket
       IsMultiRegionTrail: true
+      IncludeGlobalServiceEvents: true
+      EnableLogFileValidation: true
+      IsLogging: true
       EventSelectors:
         - ReadWriteType: All
           IncludeManagementEvents: true
+        - ReadWriteType: All
+          IncludeManagementEvents: false
+          DataResources:
+            - Type: AWS::ECR::Repository
+              Values:
+                - !Sub "arn:aws:ecr:${AWS::Region}:${AWS::AccountId}:repository/*"
+
 Outputs:
-  TrailArn:
-    Value: !Ref Trail
+  CloudTrailBucketName:
+    Description: S3 bucket used by CloudTrail
+    Value: !Ref CloudTrailBucket

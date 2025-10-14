@@ -1,38 +1,24 @@
 AWSTemplateFormatVersion: '2010-09-09'
-Description: HTTP API Gateway proxy para backend em ECS/EKS/ALB
+Description: API Gateway HTTP API skeleton. Optional Cognito authorizer is referenced in comments; fill UserPoolId/ClientId to enable.
+
 Parameters:
-  BackendUrl:
+  ApiName:
     Type: String
-    Description: URL público do backend (ex: http://alb-dns/api)
+    Default: ecommerce-api
+
 Resources:
-  Api:
+  HttpApi:
     Type: AWS::ApiGatewayV2::Api
     Properties:
-      Name: ecommerce-aws-api
+      Name: !Ref ApiName
       ProtocolType: HTTP
 
-  Integration:
-    Type: AWS::ApiGatewayV2::Integration
-    Properties:
-      ApiId: !Ref Api
-      IntegrationType: HTTP_PROXY
-      IntegrationUri: !Ref BackendUrl
-      PayloadFormatVersion: '1.0'
-
-  Route:
-    Type: AWS::ApiGatewayV2::Route
-    Properties:
-      ApiId: !Ref Api
-      RouteKey: 'ANY /{proxy+}'
-      Target: !Sub 'integrations/${Integration}'
-
-  Stage:
-    Type: AWS::ApiGatewayV2::Stage
-    Properties:
-      ApiId: !Ref Api
-      StageName: prod
-      AutoDeploy: true
+  # Example integration to an ALB (replace with your ALB ARN/URI)
+  # Integration:
+  #   Type: HTTP_PROXY
+  #   IntegrationUri: https://your-alb-dns
 
 Outputs:
   ApiEndpoint:
-    Value: !Sub 'https://${Api}.execute-api.${AWS::Region}.amazonaws.com/prod'
+    Description: API endpoint URL
+    Value: !Sub "https://${HttpApi}.execute-api.${AWS::Region}.amazonaws.com/"
