@@ -20,12 +20,20 @@ export class AuthService {
         return true;
       }
     } catch (err) {
-      // fallback to local stub (for dev when backend isn't available)
-      console.warn('Backend login failed, falling back to local stub', err);
-      if (username && password) {
-        const token = btoa(`${username}:${password}`);
-        localStorage.setItem(this.tokenKey, token);
-        return true;
+      // fallback to local stub ONLY for network errors (status === 0)
+      // if backend returned 401/4xx we must NOT accept credentials locally
+      const status = err && (err as any).status;
+      if (status === 0) {
+        console.warn('Backend unreachable, falling back to local stub', err);
+        if (username && password) {
+          const token = btoa(`${username}:${password}`);
+          localStorage.setItem(this.tokenKey, token);
+          return true;
+        }
+      } else {
+        // backend returned a real response (e.g. 401) — do not fallback
+        console.warn('Backend login failed with status', status);
+        return false;
       }
     }
     return false;
