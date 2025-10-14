@@ -1,0 +1,54 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: AWS Backup plan para EC2 e RDS com janela diária e retenção
+Parameters:
+  BackupVaultName:
+    Type: String
+    Default: ecommerce-aws-backup
+  SelectionTagKey:
+    Type: String
+    Default: Backup
+  SelectionTagValue:
+    Type: String
+    Default: true
+Resources:
+  Vault:
+    Type: AWS::Backup::BackupVault
+    Properties:
+      BackupVaultName: !Ref BackupVaultName
+  Plan:
+    Type: AWS::Backup::BackupPlan
+    Properties:
+      BackupPlan:
+        BackupPlanName: ecommerce-aws-daily
+        Rules:
+          - RuleName: Daily7Days
+            TargetBackupVault: !Ref BackupVaultName
+            ScheduleExpression: cron(0 5 * * ? *)
+            Lifecycle:
+              DeleteAfterDays: 7
+  Selection:
+    Type: AWS::Backup::BackupSelection
+    Properties:
+      BackupSelection:
+        SelectionName: TagBased
+        IamRoleArn: !GetAtt BackupRole.Arn
+        ListOfTags:
+          - ConditionType: STRINGEQUALS
+            ConditionKey: !Ref SelectionTagKey
+            ConditionValue: !Ref SelectionTagValue
+      BackupPlanId: !Ref Plan
+  BackupRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal: { Service: backup.amazonaws.com }
+            Action: sts:AssumeRole
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/service-role/AWSBackupServiceRolePolicyForBackup
+        - arn:aws:iam::aws:policy/service-role/AWSBackupServiceRolePolicyForRestores
+Outputs:
+  BackupVaultName:
+    Value: !Ref Vault

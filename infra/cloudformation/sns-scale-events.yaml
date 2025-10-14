@@ -1,0 +1,47 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: SNS topic and EventBridge rules for scaling notifications (scale in/out)
+Parameters:
+  TopicEmail:
+    Type: String
+    Default: ''
+Resources:
+  ScaleTopic:
+    Type: AWS::SNS::Topic
+    Properties:
+      TopicName: ecommerce-aws-scale-events
+  TopicSubscription:
+    Condition: HasEmail
+    Type: AWS::SNS::Subscription
+    Properties:
+      Protocol: email
+      Endpoint: !Ref TopicEmail
+      TopicArn: !Ref ScaleTopic
+
+  BusRuleScaleOut:
+    Type: AWS::Events::Rule
+    Properties:
+      Name: ecommerce-aws-scale-out
+      EventPattern:
+        source: ["aws.autoscaling"]
+        detail-type: ["EC2 Instance Launch Successful", "EC2 Instance Launch Unsuccessful"]
+      Targets:
+        - Arn: !Ref ScaleTopic
+          Id: scaleOutToSns
+
+  BusRuleScaleIn:
+    Type: AWS::Events::Rule
+    Properties:
+      Name: ecommerce-aws-scale-in
+      EventPattern:
+        source: ["aws.autoscaling"]
+        detail-type: ["EC2 Instance Terminate Successful", "EC2 Instance Terminate Unsuccessful"]
+      Targets:
+        - Arn: !Ref ScaleTopic
+          Id: scaleInToSns
+
+Conditions:
+  HasEmail: !Not [!Equals [!Ref TopicEmail, ""]]
+
+Outputs:
+  TopicArn:
+    Value: !Ref ScaleTopic

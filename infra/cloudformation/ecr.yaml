@@ -1,0 +1,58 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: ECR repos with immutable tags and scan on push for ecommerce-aws
+Parameters:
+  RepositoryPrefix:
+    Type: String
+    Default: ecommerce-aws
+  ImageTagImmutability:
+    Type: String
+    AllowedValues: [MUTABLE, IMMUTABLE]
+    Default: IMMUTABLE
+  ScanOnPush:
+    Type: String
+    AllowedValues: [true, false]
+    Default: true
+Resources:
+  BackendRepo:
+    Type: AWS::ECR::Repository
+    Properties:
+      RepositoryName: !Sub '${RepositoryPrefix}-backend'
+      ImageTagMutability: !Ref ImageTagImmutability
+      ImageScanningConfiguration:
+        ScanOnPush: !Equals [!Ref ScanOnPush, 'true']
+      LifecyclePolicy:
+        LifecyclePolicyText: |
+          {
+            "rules": [
+              {
+                "rulePriority": 1,
+                "description": "Keep last 20 images",
+                "selection": {"tagStatus": "any", "countType": "imageCountMoreThan", "countNumber": 20},
+                "action": {"type": "expire"}
+              }
+            ]
+          }
+  FrontendRepo:
+    Type: AWS::ECR::Repository
+    Properties:
+      RepositoryName: !Sub '${RepositoryPrefix}-frontend'
+      ImageTagMutability: !Ref ImageTagImmutability
+      ImageScanningConfiguration:
+        ScanOnPush: !Equals [!Ref ScanOnPush, 'true']
+      LifecyclePolicy:
+        LifecyclePolicyText: |
+          {
+            "rules": [
+              {
+                "rulePriority": 1,
+                "description": "Keep last 20 images",
+                "selection": {"tagStatus": "any", "countType": "imageCountMoreThan", "countNumber": 20},
+                "action": {"type": "expire"}
+              }
+            ]
+          }
+Outputs:
+  BackendRepoUri:
+    Value: !GetAtt BackendRepo.RepositoryUri
+  FrontendRepoUri:
+    Value: !GetAtt FrontendRepo.RepositoryUri
