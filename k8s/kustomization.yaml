@@ -1,4 +1,4 @@
-apiVersion: kustomize.config.k8s.io/v1
+apiVersion: kustomize.config.k8s.io/v1beta1
 kind: Kustomization
 
 resources:
@@ -10,7 +10,7 @@ resources:
 images:
   - name: ecommerce-aws-backend
     newName: 199299155478.dkr.ecr.us-east-1.amazonaws.com/ecommerce-aws-backend
-    newTag: latest
+    newTag: "@sha256:102006a410303c09a76881c067140551bdac60afe8e07dc149ad06fda597806e"
   - name: ecommerce-aws-frontend
     newName: 199299155478.dkr.ecr.us-east-1.amazonaws.com/ecommerce-aws-frontend
-    newTag: latest
+    newTag: "@sha256:0b9177c17d170a4968a57b910ea7247ee6339d1ab451d312055bf346f569a450"
