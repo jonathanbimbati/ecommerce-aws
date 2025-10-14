@@ -4,3 +4,6 @@ dist/
 .env
 *.log
 .vscode/
+frontend/.angular/
+.aws-sam/
+frontend/dist/

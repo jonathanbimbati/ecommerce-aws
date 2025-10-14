@@ -1,5 +1,0 @@
-{
-  "id": { "S": "prod-cli-1" },
-  "name": { "S": "Produto CLI" },
-  "price": { "N": "5.5" }
-}
