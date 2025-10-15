@@ -52,7 +52,7 @@ jobs:
         run: |
           ACCOUNT_ID=${{ steps.acct.outputs.ACCOUNT_ID }}
           ECR_URI=${ACCOUNT_ID}.dkr.ecr.${{ env.AWS_REGION }}.amazonaws.com/ecommerce-ecr-backend
-          docker build -t $ECR_URI:latest backend/
+          docker build -t $ECR_URI:latest -t $ECR_URI:${{ github.sha }} backend/
 
       - name: Login to ECR
         run: |
@@ -62,5 +62,50 @@ jobs:
         run: |
           ACCOUNT_ID=${{ steps.acct.outputs.ACCOUNT_ID }}
           ECR_URI=${ACCOUNT_ID}.dkr.ecr.${{ env.AWS_REGION }}.amazonaws.com/ecommerce-ecr-backend
-          docker tag $ECR_URI:latest $ECR_URI:latest
           docker push $ECR_URI:latest
+          docker push $ECR_URI:${{ github.sha }}
+
+  deploy-to-k8s:
+    runs-on: ubuntu-latest
+    needs: build-and-push
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up kubectl
+        uses: azure/setup-kubectl@v3
+        with:
+          version: 'latest'
+
+      - name: Configure Kubeconfig from secret (if provided)
+        if: ${{ secrets.KUBE_CONFIG != '' }}
+        run: |
+          echo "${{ secrets.KUBE_CONFIG }}" | base64 --decode > $GITHUB_WORKSPACE/kubeconfig
+          echo "KUBECONFIG=$GITHUB_WORKSPACE/kubeconfig" >> $GITHUB_ENV
+
+      - name: Configure Kubeconfig via AWS (if KUBE_CONFIG not provided)
+        if: ${{ secrets.KUBE_CONFIG == '' && secrets.AWS_ACCESS_KEY_ID != '' }}
+        uses: aws-actions/configure-aws-credentials@v2
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ${{ secrets.AWS_REGION }}
+
+      - name: Update kubeconfig using eksctl (when AWS creds available)
+        if: ${{ secrets.KUBE_CONFIG == '' && secrets.AWS_ACCESS_KEY_ID != '' }}
+        run: |
+          if [ -z "${{ secrets.EKS_CLUSTER_NAME }}" ]; then echo "EKS_CLUSTER_NAME secret is required when KUBE_CONFIG is not set" && exit 1; fi
+          aws eks update-kubeconfig --name "${{ secrets.EKS_CLUSTER_NAME }}" --region ${{ env.AWS_REGION }}
+          echo "KUBECONFIG=$HOME/.kube/config" >> $GITHUB_ENV
+
+      - name: Verify kubeconfig
+        run: |
+          echo "Using KUBECONFIG=$KUBECONFIG"
+          kubectl version --client
+
+      - name: Replace backend deployment image with new tag
+        run: |
+          ACCOUNT_ID=$(aws sts get-caller-identity --query Account --output text)
+          ECR_URI=${ACCOUNT_ID}.dkr.ecr.${{ env.AWS_REGION }}.amazonaws.com/ecommerce-ecr-backend:${{ github.sha }}
+          kubectl set image deployment/ecommerce-backend backend=$ECR_URI --record
+          kubectl rollout status deployment/ecommerce-backend --timeout=120s

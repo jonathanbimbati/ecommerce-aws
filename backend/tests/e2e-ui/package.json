@@ -1,0 +1,13 @@
+{
+  "name": "e2e-ui",
+  "version": "1.0.0",
+  "description": "Puppeteer E2E tests for frontend UI",
+  "main": "index.js",
+  "scripts": {
+    "test": "node run-e2e.js"
+  },
+  "dependencies": {
+    "puppeteer": "^20.7.0",
+    "node-fetch": "^2.6.7"
+  }
+}
