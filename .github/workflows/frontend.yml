@@ -46,7 +46,8 @@ jobs:
         run: |
           ACCOUNT_ID=$(aws sts get-caller-identity --query Account --output text)
           ECR_URI=${ACCOUNT_ID}.dkr.ecr.${{ env.AWS_REGION }}.amazonaws.com/ecommerce-ecr-frontend
-          docker build -t $ECR_URI:latest -t $ECR_URI:${{ github.sha }} frontend/
+          # Tag only with the commit SHA to avoid immutable :latest tag conflicts
+          docker build -t $ECR_URI:${{ github.sha }} frontend/
 
       - name: Login to ECR
         run: |
@@ -56,7 +57,7 @@ jobs:
         run: |
           ACCOUNT_ID=$(aws sts get-caller-identity --query Account --output text)
           ECR_URI=${ACCOUNT_ID}.dkr.ecr.${{ env.AWS_REGION }}.amazonaws.com/ecommerce-ecr-frontend
-          docker push $ECR_URI:latest
+          # Only push the SHA-tagged image. Avoid pushing or overwriting :latest when the repo is immutable.
           docker push $ECR_URI:${{ github.sha }}
 
   deploy-to-k8s:
