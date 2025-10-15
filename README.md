@@ -17,3 +17,4 @@ Passos rápidos para começar:
    - `git push -u origin main`
 
 Veja `frontend/README.md` e `backend/README.md` para instruções específicas.
+\n[ci-trigger] touch to trigger workflows: 2025-10-15T18:31:15.1788074-03:00
