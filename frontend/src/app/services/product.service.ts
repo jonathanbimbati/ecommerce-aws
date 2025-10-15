@@ -1,10 +1,12 @@
 import { Injectable } from '@angular/core';
 import { HttpClient } from '@angular/common/http';
 import { firstValueFrom } from 'rxjs';
+declare const window: any;
 
 @Injectable({ providedIn: 'root' })
 export class ProductService {
-  base = '/api/products';
+  private apiBase = (window && window.__env && window.__env.API_URL) ? window.__env.API_URL : '';
+  base = (this.apiBase || '') + '/api/products';
   constructor(private http: HttpClient) {}
 
   async list() {

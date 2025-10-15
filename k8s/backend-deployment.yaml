@@ -34,7 +34,7 @@ spec:
       serviceAccountName: ecommerce-backend-sa
       containers:
         - name: backend
-          image: 199299155478.dkr.ecr.us-east-1.amazonaws.com/ecommerce-aws-backend@sha256:102006a410303c09a76881c067140551bdac60afe8e07dc149ad06fda597806e
+          image: 199299155478.dkr.ecr.us-east-1.amazonaws.com/ecommerce-ecr-backend@sha256:102006a410303c09a76881c067140551bdac60afe8e07dc149ad06fda597806e
           imagePullPolicy: IfNotPresent
           ports:
             - containerPort: 3000

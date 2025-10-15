@@ -33,8 +33,11 @@ spec:
     spec:
       containers:
         - name: frontend
-          image: 199299155478.dkr.ecr.us-east-1.amazonaws.com/ecommerce-aws-frontend@sha256:0b9177c17d170a4968a57b910ea7247ee6339d1ab451d312055bf346f569a450
+          image: 199299155478.dkr.ecr.us-east-1.amazonaws.com/ecommerce-ecr-frontend:latest
           imagePullPolicy: IfNotPresent
+          env:
+            - name: API_URL
+              value: "https://w3rtebdo58.execute-api.us-east-1.amazonaws.com/prod"
           ports:
             - containerPort: 80
           readinessProbe:

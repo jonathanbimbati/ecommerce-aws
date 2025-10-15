@@ -16,7 +16,7 @@ Parameters:
 
 What the script does:
 1. Detect AWS Account ID via sts:get-caller-identity
-2. Create ECR repositories `ecommerce-aws-backend` and `ecommerce-aws-frontend` if they don't exist
+2. Create ECR repositories `ecommerce-ecr-backend` and `ecommerce-ecr-frontend` if they don't exist
 3. Build local Docker images for backend and frontend
 4. Tag images with ECR repo URI and push
 
@@ -53,8 +53,8 @@ try {
 }
 Write-Host "Account: $accountId"
 
-$backendRepo = "$accountId.dkr.ecr.$Region.amazonaws.com/ecommerce-aws-backend"
-$frontendRepo = "$accountId.dkr.ecr.$Region.amazonaws.com/ecommerce-aws-frontend"
+$backendRepo = "$accountId.dkr.ecr.$Region.amazonaws.com/ecommerce-ecr-backend"
+$frontendRepo = "$accountId.dkr.ecr.$Region.amazonaws.com/ecommerce-ecr-frontend"
 
 # 2) Create repos if missing
 function Ensure-EcrRepo($name) {
@@ -74,8 +74,8 @@ function Ensure-EcrRepo($name) {
     exit 1
   }
 }
-Ensure-EcrRepo 'ecommerce-aws-backend'
-Ensure-EcrRepo 'ecommerce-aws-frontend'
+Ensure-EcrRepo 'ecommerce-ecr-backend'
+Ensure-EcrRepo 'ecommerce-ecr-frontend'
 
 # 3) Login to ECR
   try {
@@ -94,9 +94,9 @@ Ensure-EcrRepo 'ecommerce-aws-frontend'
 # 4) Build and push backend
   try {
     Write-Host "Building backend image..." -ForegroundColor Cyan
-    docker build -t ecommerce-aws-backend:local ./backend
+    docker build -t ecommerce-ecr-backend:local ./backend
   $backendImage = "$($backendRepo):$Tag"
-  docker tag ecommerce-aws-backend:local "$backendImage"
+  docker tag ecommerce-ecr-backend:local "$backendImage"
   Write-Host "Pushing backend -> $backendImage" -ForegroundColor Cyan
     docker push "$backendImage"
     if ($LASTEXITCODE -ne 0) { Write-Error "Failed to push backend image"; exit 1 }
@@ -109,9 +109,9 @@ Ensure-EcrRepo 'ecommerce-aws-frontend'
 # 5) Build and push frontend
   try {
     Write-Host "Building frontend image..." -ForegroundColor Cyan
-    docker build -t ecommerce-aws-frontend:local ./frontend
+    docker build -t ecommerce-ecr-frontend:local ./frontend
   $frontendImage = "$($frontendRepo):$Tag"
-  docker tag ecommerce-aws-frontend:local "$frontendImage"
+  docker tag ecommerce-ecr-frontend:local "$frontendImage"
   Write-Host "Pushing frontend -> $frontendImage" -ForegroundColor Cyan
     docker push "$frontendImage"
     if ($LASTEXITCODE -ne 0) { Write-Error "Failed to push frontend image"; exit 1 }

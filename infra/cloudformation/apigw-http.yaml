@@ -1,24 +1,225 @@
 AWSTemplateFormatVersion: '2010-09-09'
-Description: API Gateway HTTP API skeleton. Optional Cognito authorizer is referenced in comments; fill UserPoolId/ClientId to enable.
+Description: API Gateway (HTTP API) + Lambda for products. Adds CRUD routes and optional Cognito JWT authorizer.
 
 Parameters:
   ApiName:
     Type: String
     Default: ecommerce-api
+    Description: Logical name for the HTTP API and Lambda function prefix
+
+  CognitoEnabled:
+    Type: String
+    Default: 'false'
+    AllowedValues: ['true','false']
+    Description: If 'true' the template creates a Cognito UserPool + Client and configures a JWT authorizer for the API
+
+Conditions:
+  UseCognito: !Equals [ !Ref CognitoEnabled, 'true' ]
 
 Resources:
-  HttpApi:
+  LambdaExecutionRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: lambda.amazonaws.com
+            Action: sts:AssumeRole
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole
+      Policies:
+        - PolicyName: DynamoAccess
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action:
+                  - dynamodb:PutItem
+                  - dynamodb:GetItem
+                  - dynamodb:Scan
+                  - dynamodb:Query
+                  - dynamodb:UpdateItem
+                  - dynamodb:DeleteItem
+                Resource: !Sub "arn:aws:dynamodb:${AWS::Region}:${AWS::AccountId}:table/ecommerce-aws-Products"
+
+  ProductApiFunction:
+    Type: AWS::Lambda::Function
+    Properties:
+      FunctionName: !Sub "${ApiName}-product-handler"
+      Runtime: nodejs16.x
+      Handler: index.handler
+      Role: !GetAtt LambdaExecutionRole.Arn
+      Timeout: 10
+      Environment:
+        Variables:
+          TABLE_NAME: ecommerce-aws-Products
+      Code:
+        ZipFile: |
+          const AWS = require('aws-sdk');
+          const ddb = new AWS.DynamoDB.DocumentClient();
+
+          exports.handler = async (event) => {
+            console.log('EVENT', JSON.stringify({ rawPath: event.rawPath, path: event.requestContext?.http?.path, method: event.requestContext?.http?.method }));
+            try {
+              const method = event.requestContext?.http?.method;
+              let path = event.rawPath || event.requestContext?.http?.path || '/';
+              // Normalize: remove stage prefix (e.g. /prod) if present
+              const stage = event.requestContext?.stage;
+              if (stage && path.startsWith('/' + stage)) {
+                path = path.substring(stage.length + 1) || '/';
+                if (!path.startsWith('/')) path = '/' + path;
+              }
+
+              // GET /api/products
+              if (method === 'GET' && path === '/api/products') {
+                const data = await ddb.scan({ TableName: process.env.TABLE_NAME }).promise();
+                return { statusCode: 200, body: JSON.stringify(data.Items) };
+              }
+
+              // GET /api/products/{id}
+              if (method === 'GET' && path.startsWith('/api/products/')) {
+                const id = path.split('/').pop();
+                const data = await ddb.get({ TableName: process.env.TABLE_NAME, Key: { id } }).promise();
+                if (!data.Item) return { statusCode: 404, body: JSON.stringify({ message: 'Not found' }) };
+                return { statusCode: 200, body: JSON.stringify(data.Item) };
+              }
+
+              // POST /api/products
+              if (method === 'POST' && path === '/api/products') {
+                const body = JSON.parse(event.body || '{}');
+                if (!body.id) body.id = Date.now().toString();
+                await ddb.put({ TableName: process.env.TABLE_NAME, Item: body }).promise();
+                return { statusCode: 201, body: JSON.stringify(body) };
+              }
+
+              // PUT /api/products/{id}
+              if (method === 'PUT' && path.startsWith('/api/products/')) {
+                const id = path.split('/').pop();
+                const body = JSON.parse(event.body || '{}');
+                body.id = id;
+                await ddb.put({ TableName: process.env.TABLE_NAME, Item: body }).promise();
+                return { statusCode: 200, body: JSON.stringify(body) };
+              }
+
+              // DELETE /api/products/{id}
+              if (method === 'DELETE' && path.startsWith('/api/products/')) {
+                const id = path.split('/').pop();
+                await ddb.delete({ TableName: process.env.TABLE_NAME, Key: { id } }).promise();
+                return { statusCode: 204, body: '' };
+              }
+
+              return { statusCode: 400, body: JSON.stringify({ message: 'Bad request' }) };
+            } catch (err) {
+              console.error(err);
+              return { statusCode: 500, body: JSON.stringify({ message: 'Internal error' }) };
+            }
+          };
+
+  Api:
     Type: AWS::ApiGatewayV2::Api
     Properties:
       Name: !Ref ApiName
       ProtocolType: HTTP
 
-  # Example integration to an ALB (replace with your ALB ARN/URI)
-  # Integration:
-  #   Type: HTTP_PROXY
-  #   IntegrationUri: https://your-alb-dns
+  ApiIntegration:
+    Type: AWS::ApiGatewayV2::Integration
+    Properties:
+      ApiId: !Ref Api
+      IntegrationType: AWS_PROXY
+      IntegrationUri: !Sub "arn:aws:apigateway:${AWS::Region}:lambda:path/2015-03-31/functions/${ProductApiFunction.Arn}/invocations"
+      PayloadFormatVersion: '2.0'
+
+  RouteGetProducts:
+    Type: AWS::ApiGatewayV2::Route
+    Properties:
+      ApiId: !Ref Api
+      RouteKey: GET /api/products
+      Target: !Sub "integrations/${ApiIntegration}"
+      AuthorizerId: !If [ UseCognito, !Ref ApiAuthorizer, !Ref 'AWS::NoValue' ]
+
+  RouteGetProductById:
+    Type: AWS::ApiGatewayV2::Route
+    Properties:
+      ApiId: !Ref Api
+      RouteKey: GET /api/products/{id}
+      Target: !Sub "integrations/${ApiIntegration}"
+      AuthorizerId: !If [ UseCognito, !Ref ApiAuthorizer, !Ref 'AWS::NoValue' ]
+
+  RoutePostProduct:
+    Type: AWS::ApiGatewayV2::Route
+    Properties:
+      ApiId: !Ref Api
+      RouteKey: POST /api/products
+      Target: !Sub "integrations/${ApiIntegration}"
+      AuthorizerId: !If [ UseCognito, !Ref ApiAuthorizer, !Ref 'AWS::NoValue' ]
+
+  RoutePutProduct:
+    Type: AWS::ApiGatewayV2::Route
+    Properties:
+      ApiId: !Ref Api
+      RouteKey: PUT /api/products/{id}
+      Target: !Sub "integrations/${ApiIntegration}"
+      AuthorizerId: !If [ UseCognito, !Ref ApiAuthorizer, !Ref 'AWS::NoValue' ]
+
+  RouteDeleteProduct:
+    Type: AWS::ApiGatewayV2::Route
+    Properties:
+      ApiId: !Ref Api
+      RouteKey: DELETE /api/products/{id}
+      Target: !Sub "integrations/${ApiIntegration}"
+      AuthorizerId: !If [ UseCognito, !Ref ApiAuthorizer, !Ref 'AWS::NoValue' ]
+
+  Stage:
+    Type: AWS::ApiGatewayV2::Stage
+    Properties:
+      ApiId: !Ref Api
+      StageName: prod
+      AutoDeploy: true
+
+  LambdaPermissionForApi:
+    Type: AWS::Lambda::Permission
+    Properties:
+      FunctionName: !GetAtt ProductApiFunction.Arn
+      Action: lambda:InvokeFunction
+      Principal: apigateway.amazonaws.com
+      SourceArn: !Sub "arn:aws:execute-api:${AWS::Region}:${AWS::AccountId}:${Api}/*/*/*"
+
+  # Optional Cognito resources
+  ProductsUserPool:
+    Type: AWS::Cognito::UserPool
+    Condition: UseCognito
+    Properties:
+      UserPoolName: !Sub "${ApiName}-userpool"
+
+  ProductsUserPoolClient:
+    Type: AWS::Cognito::UserPoolClient
+    Condition: UseCognito
+    Properties:
+      ClientName: !Sub "${ApiName}-client"
+      UserPoolId: !Ref ProductsUserPool
+      GenerateSecret: false
+
+  ApiAuthorizer:
+    Type: AWS::ApiGatewayV2::Authorizer
+    Condition: UseCognito
+    Properties:
+      ApiId: !Ref Api
+      Name: !Sub "${ApiName}-cognito-authorizer"
+      AuthorizerType: JWT
+      IdentitySource:
+        - "$request.header.Authorization"
+      JwtConfiguration:
+        Issuer: !Sub "https://cognito-idp.${AWS::Region}.amazonaws.com/${ProductsUserPool}"
+        Audience:
+          - !Ref ProductsUserPoolClient
 
 Outputs:
   ApiEndpoint:
     Description: API endpoint URL
-    Value: !Sub "https://${HttpApi}.execute-api.${AWS::Region}.amazonaws.com/"
+    Value: !Sub "https://${Api}.execute-api.${AWS::Region}.amazonaws.com/prod"
+  UserPoolId:
+    Condition: UseCognito
+    Description: Cognito UserPool ID (created when CognitoEnabled=true)
+    Value: !Ref ProductsUserPool

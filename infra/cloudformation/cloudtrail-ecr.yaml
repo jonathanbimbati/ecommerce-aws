@@ -5,15 +5,15 @@ Parameters:
   TrailName:
     Type: String
     Default: ecommerce-aws-cloudtrail
-  S3BucketName:
-    Type: String
-    Default: !Sub "ecommerce-aws-cloudtrail-logs-${AWS::AccountId}-${AWS::Region}"
+  # No S3BucketName parameter: the template creates a dedicated bucket for CloudTrail logs.
 
 Resources:
   CloudTrailBucket:
     Type: AWS::S3::Bucket
     Properties:
-      BucketName: !Ref S3BucketName
+      # If S3BucketName parameter is provided, CloudFormation does not allow conditional BucketName property for S3::Bucket.
+      # We'll create a new bucket always and the parameter can be used externally if needed.
+      BucketName: !Sub "ecommerce-aws-cloudtrail-logs-${AWS::AccountId}-${AWS::Region}"
       VersioningConfiguration:
         Status: Enabled
 
@@ -29,7 +29,14 @@ Resources:
             Principal:
               Service: cloudtrail.amazonaws.com
             Action: s3:PutObject
-            Resource: !Sub "arn:aws:s3:::${S3BucketName}/AWSLogs/${AWS::AccountId}/*"
+            Resource:
+              Fn::Join:
+                - ''
+                - - 'arn:aws:s3:::'
+                  - !Ref CloudTrailBucket
+                  - '/AWSLogs/'
+                  - !Ref 'AWS::AccountId'
+                  - '/*'
 
   CloudTrail:
     Type: AWS::CloudTrail::Trail

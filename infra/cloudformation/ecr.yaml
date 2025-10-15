@@ -1,68 +1,57 @@
 AWSTemplateFormatVersion: '2010-09-09'
-Description: >-
-	Create ECR repositories for the project with image tag immutability
-	and a simple lifecycle policy to avoid accidental image replacement.
+Description: Create ECR repositories for the project with immutability and a lifecycle policy.
 
 Parameters:
-	BackendRepositoryName:
-		Type: String
-    Default: ecommerce-aws-backend
-		Description: Name of the backend ECR repository
-	FrontendRepositoryName:
-		Type: String
-		AWSTemplateFormatVersion: '2010-09-09'
-		Description: Create two ECR repositories (backend and frontend) with immutability and a lifecycle policy.
+  BackendRepositoryName:
+    Type: String
+    Default: ecommerce-ecr-backend
+    Description: Name of the backend ECR repository
+  FrontendRepositoryName:
+    Type: String
+    Default: ecommerce-ecr-frontend
+    Description: Name of the frontend ECR repository
 
-		Parameters:
-			BackendRepositoryName:
-				Type: String
-				Default: ecommerce-aws-backend
-			FrontendRepositoryName:
-				Type: String
-				Default: ecommerce-aws-frontend
+Resources:
+  ECRRepositoryBackend:
+    Type: AWS::ECR::Repository
+    Properties:
+      RepositoryName: !Sub "${AWS::StackName}-backend"
+      ImageTagMutability: IMMUTABLE
+      LifecyclePolicy:
+        LifecyclePolicyText: |
+          {
+            "rules": [
+              {
+                "rulePriority": 1,
+                "description": "Expire images older than last 30 by count",
+                "selection": { "tagStatus": "any", "countType": "imageCountMoreThan", "countNumber": 30 },
+                "action": { "type": "expire" }
+              }
+            ]
+          }
 
-		Resources:
-			ECRRepositoryBackend:
-				Type: AWS::ECR::Repository
-				Properties:
-					RepositoryName: !Ref BackendRepositoryName
-					ImageTagMutability: IMMUTABLE
-					LifecyclePolicy:
-						LifecyclePolicyText: |
-							{
-								"rules": [
-									{
-										"rulePriority": 1,
-										"description": "Expire images older than last 30 by count",
-										"selection": { "tagStatus": "any", "countType": "imageCountMoreThan", "countNumber": 30 },
-										"action": { "type": "expire" }
-									}
-								]
-							}
+  ECRRepositoryFrontend:
+    Type: AWS::ECR::Repository
+    Properties:
+      RepositoryName: !Sub "${AWS::StackName}-frontend"
+      ImageTagMutability: IMMUTABLE
+      LifecyclePolicy:
+        LifecyclePolicyText: |
+          {
+            "rules": [
+              {
+                "rulePriority": 1,
+                "description": "Expire images older than last 30 by count",
+                "selection": { "tagStatus": "any", "countType": "imageCountMoreThan", "countNumber": 30 },
+                "action": { "type": "expire" }
+              }
+            ]
+          }
 
-			ECRRepositoryFrontend:
-				Type: AWS::ECR::Repository
-				Properties:
-					RepositoryName: !Ref FrontendRepositoryName
-					ImageTagMutability: IMMUTABLE
-					LifecyclePolicy:
-						LifecyclePolicyText: |
-							{
-								"rules": [
-									{
-										"rulePriority": 1,
-										"description": "Expire images older than last 30 by count",
-										"selection": { "tagStatus": "any", "countType": "imageCountMoreThan", "countNumber": 30 },
-										"action": { "type": "expire" }
-									}
-								]
-							}
-
-		Outputs:
-			BackendRepositoryUri:
-				Value: !Sub "${AWS::AccountId}.dkr.ecr.${AWS::Region}.amazonaws.com/${BackendRepositoryName}"
-			FrontendRepositoryUri:
-				Value: !Sub "${AWS::AccountId}.dkr.ecr.${AWS::Region}.amazonaws.com/${FrontendRepositoryName}"
-			Type: AWS::ECR::Repository
-
-			Properties:
+Outputs:
+  BackendRepositoryUri:
+    Description: URI of the backend ECR repository
+    Value: !GetAtt ECRRepositoryBackend.RepositoryUri
+  FrontendRepositoryUri:
+    Description: URI of the frontend ECR repository
+    Value: !GetAtt ECRRepositoryFrontend.RepositoryUri
