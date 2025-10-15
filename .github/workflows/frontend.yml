@@ -144,7 +144,7 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y --no-install-recommends \
             ca-certificates fonts-liberation libatk1.0-0 libatk-bridge2.0-0 libcups2 \
-            libxrandr2 libasound2 libxss1 libgbm1 libgtk-3-0 libnss3 libx11-xcb1 \
+            libxrandr2 libasound2t64 libxss1 libgbm1 libgtk-3-0 libnss3 libx11-xcb1 \
             chromium
 
       - name: Install puppeteer deps
