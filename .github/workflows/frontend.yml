@@ -143,16 +143,17 @@ jobs:
           # Install system dependencies required by Chromium/Puppeteer
           sudo apt-get update
           # Some Ubuntu images (24.04) provide libasound2t64 instead of libasound2.
-          # Try libasound2t64 first and fall back to libasound2 if not available.
-          ALSA_PKG=libasound2t64
-          if ! apt-cache policy $ALSA_PKG | grep -q 'Candidate:'; then
-            ALSA_PKG=libasound2
-          fi
-          echo "Installing ALSA package: $ALSA_PKG"
-          sudo apt-get install -y --no-install-recommends \
-            ca-certificates fonts-liberation libatk1.0-0 libatk-bridge2.0-0 libcups2 \
-            libxrandr2 $ALSA_PKG libxss1 libgbm1 libgtk-3-0 libnss3 libx11-xcb1 \
-            chromium
+          # Try installing with libasound2t64 first; if that fails, retry with libasound2.
+          COMMON_PKGS="ca-certificates fonts-liberation libatk1.0-0 libatk-bridge2.0-0 libcups2 libxrandr2 libxss1 libgbm1 libgtk-3-0 libnss3 libx11-xcb1 chromium"
+          for ALSA_PKG in libasound2t64 libasound2; do
+            echo "Attempting apt-get install with ALSA package: $ALSA_PKG"
+            if sudo apt-get install -y --no-install-recommends $COMMON_PKGS $ALSA_PKG; then
+              echo "Successfully installed dependencies with $ALSA_PKG"
+              break
+            else
+              echo "Failed to install $ALSA_PKG. Trying next option..."
+            fi
+          done
 
       - name: Install puppeteer deps
         env:
