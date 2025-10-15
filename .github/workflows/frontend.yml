@@ -138,7 +138,20 @@ jobs:
         with:
           node-version: '18'
 
+      - name: Install system deps and Chromium for Puppeteer
+        run: |
+          # Install system dependencies required by Chromium/Puppeteer
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            ca-certificates fonts-liberation libatk1.0-0 libatk-bridge2.0-0 libcups2 \
+            libxrandr2 libasound2 libxss1 libgbm1 libgtk-3-0 libnss3 libx11-xcb1 \
+            chromium
+
       - name: Install puppeteer deps
+        env:
+          # Tell puppeteer to skip downloading its bundled Chromium and use system Chromium
+          PUPPETEER_SKIP_CHROMIUM_DOWNLOAD: 'true'
+          PUPPETEER_EXECUTABLE_PATH: '/usr/bin/chromium'
         run: |
           cd backend/tests/e2e-ui
           npm ci
