@@ -86,6 +86,9 @@ jobs:
         if: ${{ env.KUBE_CONFIG != '' }}
         run: |
           echo "${{ env.KUBE_CONFIG }}" | base64 --decode > $GITHUB_WORKSPACE/kubeconfig
+          # Fix common apiVersion typo (kxs -> k8s) and normalize exec plugin apiVersion to v1
+          sed -E -i 's/client.authentication\.kxs\.io/client.authentication.k8s.io/g' $GITHUB_WORKSPACE/kubeconfig || true
+          sed -E -i 's/client.authentication.k8s.io\/v[0-9a-zA-Z._-]*/client.authentication.k8s.io\/v1/g' $GITHUB_WORKSPACE/kubeconfig || true
           # Ensure exec auth plugins won't prompt for input in CI by setting interactiveMode: Never
           awk '{ print $0;
             if ($0 ~ /^[[:space:]]*exec:[[:space:]]*$/) {
