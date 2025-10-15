@@ -82,6 +82,18 @@ jobs:
         if: ${{ env.KUBE_CONFIG != '' }}
         run: |
           echo "${{ env.KUBE_CONFIG }}" | base64 --decode > $GITHUB_WORKSPACE/kubeconfig
+          # Some kubeconfigs use an exec auth plugin that requires an 'interactiveMode' field
+          # Add `interactiveMode: Never` to exec blocks to allow non-interactive CI runs
+          awk '{ print $0;
+            if ($0 ~ /^[[:space:]]*exec:[[:space:]]*$/) {
+              m = match($0, /[^ \t]/);
+              indent = (m>1) ? substr($0,1,m-1) : "";
+              if (getline nxt) {
+                print indent "  interactiveMode: Never";
+                print nxt;
+              }
+            }
+          }' $GITHUB_WORKSPACE/kubeconfig > $GITHUB_WORKSPACE/kubeconfig.fixed && mv $GITHUB_WORKSPACE/kubeconfig.fixed $GITHUB_WORKSPACE/kubeconfig
           echo "KUBECONFIG=$GITHUB_WORKSPACE/kubeconfig" >> $GITHUB_ENV
 
       - name: Configure Kubeconfig via AWS (if KUBE_CONFIG not provided)
