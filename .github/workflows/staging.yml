@@ -188,6 +188,24 @@ jobs:
           npm ci
           npm run test
 
+      - name: Debug: list E2E artifact directory (for troubleshooting)
+        if: always()
+        run: |
+          echo "Workspace: $(pwd)"
+          echo "Listing backend/tests/e2e-ui (top level)" || true
+          ls -la backend/tests/e2e-ui || true
+          echo "Listing backend/tests/e2e-ui/artifacts (if exists)" || true
+          ls -la backend/tests/e2e-ui/artifacts || true
+          echo "Recursive find (show up to 3 levels)" || true
+          find backend/tests/e2e-ui -maxdepth 3 -type f -print || true
+
+      - name: Upload E2E artifacts (if any)
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: e2e-artifacts
+          path: backend/tests/e2e-ui/artifacts/**
+
       - name: Promote to production (automatic)
         if: success()
         run: |
