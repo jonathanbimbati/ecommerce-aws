@@ -1,5 +1,7 @@
 const fetch = require('node-fetch');
 const puppeteer = require('puppeteer');
+const fs = require('fs');
+const path = require('path');
 
 const API_URL = process.env.API_URL || 'https://w3rtebdo58.execute-api.us-east-1.amazonaws.com/prod';
 const FRONTEND_URL = process.env.FRONTEND_URL || 'http://a09c4d3270e0d46b880b671b9586f27e-1552508925.us-east-1.elb.amazonaws.com';
@@ -30,7 +32,28 @@ async function runE2E() {
   if (!ok) throw new Error('Could not create UI user');
 
   console.log('Launching browser...');
-  const browser = await puppeteer.launch({ headless: true, args: ['--no-sandbox','--disable-setuid-sandbox'] });
+  // Resolve an executable path for Chromium/Chrome. Prefer the env var, then common system locations.
+  function findChrome() {
+    const envPath = process.env.PUPPETEER_EXECUTABLE_PATH;
+    if (envPath && fs.existsSync(envPath)) return envPath;
+    const candidates = [
+      '/snap/bin/chromium',
+      '/usr/bin/chromium',
+      '/usr/bin/chromium-browser',
+      '/usr/bin/google-chrome-stable',
+      '/usr/bin/google-chrome'
+    ];
+    for (const p of candidates) {
+      if (fs.existsSync(p)) return p;
+    }
+    return null;
+  }
+
+  const exe = findChrome();
+  if (!exe) console.warn('No system Chrome/Chromium executable found; Puppeteer may fail to launch');
+  const launchOpts = { headless: 'new', args: ['--no-sandbox', '--disable-setuid-sandbox'] };
+  if (exe) launchOpts.executablePath = exe;
+  const browser = await puppeteer.launch(launchOpts);
   const page = await browser.newPage();
   page.setDefaultTimeout(20000);
 

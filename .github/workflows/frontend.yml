@@ -159,7 +159,7 @@ jobs:
         env:
           # Tell puppeteer to skip downloading its bundled Chromium and use system Chromium
           PUPPETEER_SKIP_CHROMIUM_DOWNLOAD: 'true'
-          PUPPETEER_EXECUTABLE_PATH: '/usr/bin/chromium'
+          PUPPETEER_EXECUTABLE_PATH: '/snap/bin/chromium'
         run: |
           cd backend/tests/e2e-ui
           npm ci
