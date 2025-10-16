@@ -188,7 +188,7 @@ jobs:
           npm ci
           npm run test
 
-      - name: Debug: list E2E artifact directory (for troubleshooting)
+      - name: Debug list E2E artifact directory (for troubleshooting)
         if: ${{ always() }}
         run: |
           echo "Workspace: $(pwd)"
