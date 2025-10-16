@@ -98,6 +98,14 @@ jobs:
           aws-secret-access-key: ${{ env.AWS_SECRET_ACCESS_KEY }}
           aws-region: ${{ env.AWS_REGION }}
 
+      - name: Refresh kubeconfig via AWS (ensure exec-plugin uses job credentials)
+        if: ${{ env.AWS_ACCESS_KEY_ID != '' && env.EKS_CLUSTER_NAME != '' }}
+        run: |
+          echo "Refreshing kubeconfig using AWS CLI so exec-plugin picks up credentials"
+          aws sts get-caller-identity || true
+          aws eks update-kubeconfig --name "${{ env.EKS_CLUSTER_NAME }}" --region ${{ env.AWS_REGION }} --kubeconfig $GITHUB_WORKSPACE/kubeconfig
+          echo "KUBECONFIG=$GITHUB_WORKSPACE/kubeconfig" >> $GITHUB_ENV
+
       - name: Configure Kubeconfig via AWS (if KUBE_CONFIG not provided)
         if: ${{ env.KUBE_CONFIG == '' && env.AWS_ACCESS_KEY_ID != '' }}
         uses: aws-actions/configure-aws-credentials@v2
