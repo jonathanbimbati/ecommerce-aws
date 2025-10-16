@@ -35,20 +35,7 @@ jobs:
             # normalize exec plugin apiVersion and add interactiveMode: Never when needed
             sed -E -i 's/client.authentication\.kxs\.io/client.authentication.k8s.io/g' "$GITHUB_WORKSPACE/kubeconfig" || true
             sed -E -i 's/client.authentication.k8s.io\/v[0-9a-zA-Z._-]*/client.authentication.k8s.io\/v1/g' "$GITHUB_WORKSPACE/kubeconfig" || true
-            # Safely insert `interactiveMode: Never` after any `exec:` mapping line using awk
-            awk '
-            { print $0 }
-            /^[[:space:]]*exec:[[:space:]]*$/ {
-              if (getline nxt) {
-                # compute indentation of the following line and emit interactiveMode with same indent
-                if (match(nxt, /[^ \t]/)) {
-                  indent = substr(nxt, 1, RSTART-1)
-                } else { indent = "" }
-                print indent "  interactiveMode: Never"
-                print nxt
-              }
-            }
-            ' "$GITHUB_WORKSPACE/kubeconfig" > "$GITHUB_WORKSPACE/kubeconfig.fixed" && mv "$GITHUB_WORKSPACE/kubeconfig.fixed" "$GITHUB_WORKSPACE/kubeconfig"
+            # Keep kubeconfig structural edits minimal (only normalize apiVersion). Do not inject lines that may break YAML.
             echo "KUBECONFIG=$GITHUB_WORKSPACE/kubeconfig" >> "$GITHUB_ENV"
             else
             echo "KUBE_CONFIG secret is empty. Exiting debug to avoid accidental cluster access.";
