@@ -1,0 +1,83 @@
+name: Staging debug pipeline
+
+on:
+  workflow_dispatch: {}
+  push:
+    branches:
+      - main
+
+env:
+  AWS_REGION: ${{ secrets.AWS_REGION }}
+  EKS_CLUSTER_NAME: ${{ secrets.EKS_CLUSTER_NAME }}
+
+jobs:
+  debug-pods:
+    name: Debug staging pods
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup kubectl
+        uses: azure/setup-kubectl@v3
+        with:
+          version: 'latest'
+
+      - name: Configure kubeconfig from secret
+        shell: bash
+        env:
+          KUBE_CONFIG: ${{ secrets.KUBE_CONFIG }}
+        run: |
+          if [ -n "$KUBE_CONFIG" ]; then
+            echo "$KUBE_CONFIG" | base64 --decode > "$GITHUB_WORKSPACE/kubeconfig"
+            # normalize exec plugin apiVersion and add interactiveMode: Never when needed
+            sed -E -i 's/client.authentication\.kxs\.io/client.authentication.k8s.io/g' "$GITHUB_WORKSPACE/kubeconfig" || true
+            sed -E -i 's/client.authentication.k8s.io\/v[0-9a-zA-Z._-]*/client.authentication.k8s.io\/v1/g' "$GITHUB_WORKSPACE/kubeconfig" || true
+            awk '{ print $0; if ($0 ~ /^[[:space:]]*exec:[[:space:]]*$/) { m = match($0, /[^ \t]/); indent = (m>1) ? substr($0,1,m-1) : ""; if (getline nxt) { print indent "  interactiveMode: Never"; print nxt; } } }' "$GITHUB_WORKSPACE/kubeconfig" > "$GITHUB_WORKSPACE/kubeconfig.fixed" && mv "$GITHUB_WORKSPACE/kubeconfig.fixed" "$GITHUB_WORKSPACE/kubeconfig"
+            echo "KUBECONFIG=$GITHUB_WORKSPACE/kubeconfig" >> "$GITHUB_ENV"
+          else
+            echo "KUBE_CONFIG secret is empty. Exiting debug to avoid accidental cluster access.";
+            exit 1
+          fi
+
+      - name: Show cluster and namespace info
+        run: |
+          echo "KUBECONFIG=$KUBECONFIG"
+          kubectl version --client
+          kubectl get namespaces || true
+
+      - name: Get pods in staging
+        run: |
+          kubectl get pods -n staging -o wide || true
+
+      - name: Describe pods (with events)
+        run: |
+          kubectl describe pods -n staging --show-events || true
+
+      - name: Dump logs for non-ready containers (last 200 lines)
+        shell: bash
+        run: |
+          set -e
+          echo "Looking for non-ready pods..."
+          mapfile -t pods < <(kubectl get pods -n staging --no-headers -o custom-columns=NAME:.metadata.name,READY:.status.containerStatuses[*].ready | awk '$2 !~ /true/ { print $1 }') || true
+          if [ ${#pods[@]} -eq 0 ]; then
+            echo "No non-ready pods found. Exiting."
+            exit 0
+          fi
+          for p in "${pods[@]}"; do
+            echo "--- Pod: $p ---"
+            # list containers in pod
+            containers=$(kubectl get pod "$p" -n staging -o jsonpath='{.spec.containers[*].name}') || true
+            for c in $containers; do
+              echo "--- Logs for pod/$p container/$c ---"
+              kubectl logs "$p" -n staging -c "$c" --tail=200 || true
+            done
+            echo "--- End pod: $p ---"
+          done
+
+      - name: Fetch recent events for staging namespace
+        run: |
+          kubectl get events -n staging --sort-by='.lastTimestamp' || true
+
+      - name: Finished
+        run: echo "Staging debug completed. Look at logs above for failures or ImagePull events."
