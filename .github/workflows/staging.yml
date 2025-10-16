@@ -128,7 +128,7 @@ jobs:
           for i in {1..20}; do
             HOST=$(kubectl get svc ecommerce-frontend -n staging -o jsonpath='{.status.loadBalancer.ingress[0].hostname}' 2>/dev/null || true)
             if [ -n "$HOST" ]; then
-              echo "FOUND_HOST=$HOST" >> $GITHUB_ENV
+              echo "FRONTEND_HOST=$HOST" >> $GITHUB_ENV
               echo "Found LB host: $HOST"; break
             fi
             echo "Waiting for LB host... ($i)"; sleep 15
@@ -137,7 +137,164 @@ jobs:
 
       - name: Run E2E tests against staging
         env:
-          FRONTEND_URL: http://$HOST
+          FRONTEND_URL: http://${{ env.FRONTEND_HOST }}
+          PUPPETEER_SKIP_CHROMIUM_DOWNLOAD: 'true'
+          PUPPETEER_EXECUTABLE_PATH: '/snap/bin/chromium'
+        run: |
+          cd backend/tests/e2e-ui
+          npm ci
+          npm run test
+
+      - name: Promote to production (automatic)
+        if: success()
+        run: |
+          echo "Promotion: updating production deployment to use staging image"
+          ACCOUNT_ID=$(aws sts get-caller-identity --query Account --output text)
+          ECR_URI=${ACCOUNT_ID}.dkr.ecr.${{ env.AWS_REGION }}.amazonaws.com/ecommerce-ecr-frontend
+          IMAGE_SHA=${{ needs.build-and-push.outputs.image_sha }}
+          # Update production deployment in default/production namespace
+          kubectl set image deployment/ecommerce-frontend frontend=$ECR_URI:${IMAGE_SHA} --record
+          kubectl rollout status deployment/ecommerce-frontend --timeout=180s
+name: Staging pipeline (build -> deploy -> test -> promote)
+
+on:
+  push:
+    branches: [ main ]
+  workflow_dispatch: {}
+
+env:
+  AWS_REGION: ${{ secrets.AWS_REGION }}
+
+jobs:
+  build-and-push:
+    runs-on: ubuntu-latest
+    outputs:
+      image_sha: ${{ steps.set-vars.outputs.IMAGE_SHA }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '18'
+
+      - name: Install frontend deps and build
+        working-directory: frontend
+        run: |
+          npm ci
+          npm run build --if-present || true
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v2
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ${{ secrets.AWS_REGION }}
+
+      - name: Ensure ECR repo exists
+        run: |
+          ACCOUNT_ID=$(aws sts get-caller-identity --query Account --output text)
+          aws ecr describe-repositories --repository-names ecommerce-ecr-frontend || aws ecr create-repository --repository-name ecommerce-ecr-frontend
+
+      - name: Build Docker image and push tags
+        id: set-vars
+        run: |
+          ACCOUNT_ID=$(aws sts get-caller-identity --query Account --output text)
+          ECR_URI=${ACCOUNT_ID}.dkr.ecr.${{ env.AWS_REGION }}.amazonaws.com/ecommerce-ecr-frontend
+          IMAGE_SHA=${{ github.sha }}
+          STAGING_TAG=staging-${IMAGE_SHA}
+          docker build -t $ECR_URI:${IMAGE_SHA} frontend/
+          docker tag $ECR_URI:${IMAGE_SHA} $ECR_URI:${STAGING_TAG}
+          aws ecr get-login-password --region ${{ env.AWS_REGION }} | docker login --username AWS --password-stdin $ACCOUNT_ID.dkr.ecr.${{ env.AWS_REGION }}.amazonaws.com
+          docker push $ECR_URI:${IMAGE_SHA}
+          docker push $ECR_URI:${STAGING_TAG}
+          echo "IMAGE_SHA=${IMAGE_SHA}" >> $GITHUB_OUTPUT
+          echo "ECR_URI=${ECR_URI}" >> $GITHUB_OUTPUT
+
+  deploy-and-test-staging:
+    runs-on: ubuntu-latest
+    needs: build-and-push
+    env:
+      KUBE_CONFIG: ${{ secrets.KUBE_CONFIG }}
+      AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
+      AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+      EKS_CLUSTER_NAME: ${{ secrets.EKS_CLUSTER_NAME }}
+      AWS_REGION: ${{ secrets.AWS_REGION }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up kubectl
+        uses: azure/setup-kubectl@v3
+        with:
+          version: 'latest'
+
+      - name: Configure Kubeconfig from secret (if provided)
+        if: ${{ env.KUBE_CONFIG != '' }}
+        run: |
+          echo "${{ env.KUBE_CONFIG }}" | base64 --decode > $GITHUB_WORKSPACE/kubeconfig
+          sed -E -i 's/client.authentication\.kxs\.io/client.authentication.k8s.io/g' $GITHUB_WORKSPACE/kubeconfig || true
+          sed -E -i 's/client.authentication.k8s.io\/v[0-9a-zA-Z._-]*/client.authentication.k8s.io\/v1/g' $GITHUB_WORKSPACE/kubeconfig || true
+          awk '{ print $0;
+            if ($0 ~ /^[[:space:]]*exec:[[:space:]]*$/) {
+              m = match($0, /[^ \t]/);
+              indent = (m>1) ? substr($0,1,m-1) : "";
+              if (getline nxt) {
+                print indent "  interactiveMode: Never";
+                print nxt;
+              }
+            }
+          }' $GITHUB_WORKSPACE/kubeconfig > $GITHUB_WORKSPACE/kubeconfig.fixed && mv $GITHUB_WORKSPACE/kubeconfig.fixed $GITHUB_WORKSPACE/kubeconfig
+          echo "KUBECONFIG=$GITHUB_WORKSPACE/kubeconfig" >> $GITHUB_ENV
+
+      - name: Configure Kubeconfig via AWS (if KUBE_CONFIG not provided)
+        if: ${{ env.KUBE_CONFIG == '' && env.AWS_ACCESS_KEY_ID != '' }}
+        uses: aws-actions/configure-aws-credentials@v2
+        with:
+          aws-access-key-id: ${{ env.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ env.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Update kubeconfig using eksctl (when AWS creds available)
+        if: ${{ env.KUBE_CONFIG == '' && env.AWS_ACCESS_KEY_ID != '' }}
+        run: |
+          if [ -z "${{ env.EKS_CLUSTER_NAME }}" ]; then echo "EKS_CLUSTER_NAME secret is required when KUBE_CONFIG is not set" && exit 1; fi
+          aws eks update-kubeconfig --name "${{ env.EKS_CLUSTER_NAME }}" --region ${{ env.AWS_REGION }}
+
+      - name: Create staging namespace
+        run: |
+          kubectl get namespace staging || kubectl create namespace staging
+
+      - name: Apply frontend k8s manifests to staging
+        run: |
+          # apply manifests (will create deployment/service if not exist)
+          kubectl apply -f k8s/frontend-deployment.yaml -n staging || true
+
+      - name: Replace deployment image with staging sha tag
+        run: |
+          ACCOUNT_ID=$(aws sts get-caller-identity --query Account --output text)
+          ECR_URI=${ACCOUNT_ID}.dkr.ecr.${{ env.AWS_REGION }}.amazonaws.com/ecommerce-ecr-frontend
+          IMAGE_SHA=${{ needs.build-and-push.outputs.image_sha }}
+          kubectl set image deployment/ecommerce-frontend -n staging frontend=$ECR_URI:${IMAGE_SHA} --record
+          kubectl rollout status deployment/ecommerce-frontend -n staging --timeout=180s
+
+      - name: Wait for LoadBalancer hostname (staging service)
+        run: |
+          # Try to read the external hostname for the service; wait up to 5 minutes
+          for i in {1..20}; do
+            HOST=$(kubectl get svc ecommerce-frontend -n staging -o jsonpath='{.status.loadBalancer.ingress[0].hostname}' 2>/dev/null || true)
+            if [ -n "$HOST" ]; then
+              echo "FRONTEND_HOST=$HOST" >> $GITHUB_ENV
+              echo "Found LB host: $HOST"; break
+            fi
+            echo "Waiting for LB host... ($i)"; sleep 15
+          done
+          if [ -z "$HOST" ]; then echo "LoadBalancer hostname not available"; exit 1; fi
+
+      - name: Run E2E tests against staging
+        env:
+          FRONTEND_URL: http://${{ env.FRONTEND_HOST }}
           PUPPETEER_SKIP_CHROMIUM_DOWNLOAD: 'true'
           PUPPETEER_EXECUTABLE_PATH: '/snap/bin/chromium'
         run: |
