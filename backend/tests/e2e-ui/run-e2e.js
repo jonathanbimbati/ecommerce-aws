@@ -57,6 +57,10 @@ async function runE2E() {
   if (!exe) console.warn('No system Chrome/Chromium executable found; Puppeteer may fail to launch');
   const launchOpts = {
     headless: 'new',
+    // Ask Puppeteer to ignore HTTPS certificate errors at the API level too.
+    // This is more reliable than relying on Chromium CLI flags alone when
+    // puppeteer-core launches an externally provided Chromium binary.
+    ignoreHTTPSErrors: true,
     args: [
       '--no-sandbox',
       '--disable-setuid-sandbox',
