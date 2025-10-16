@@ -35,30 +35,20 @@ jobs:
             # normalize exec plugin apiVersion and add interactiveMode: Never when needed
             sed -E -i 's/client.authentication\.kxs\.io/client.authentication.k8s.io/g' "$GITHUB_WORKSPACE/kubeconfig" || true
             sed -E -i 's/client.authentication.k8s.io\/v[0-9a-zA-Z._-]*/client.authentication.k8s.io\/v1/g' "$GITHUB_WORKSPACE/kubeconfig" || true
-            # Safely insert `interactiveMode: Never` after any `exec:` mapping line using Python
-            python3 - <<'PY'
-            import os, re
-            kp = os.path.join(os.environ.get('GITHUB_WORKSPACE','.'), 'kubeconfig')
-            try:
-                with open(kp, 'r', encoding='utf-8') as f:
-                    lines = f.readlines()
-            except Exception:
-                lines = []
-            out = []
-            exec_re = re.compile(r'^\s*exec:\s*$')
-            i = 0
-            while i < len(lines):
-                out.append(lines[i])
-                if exec_re.match(lines[i]):
-                    # peek next line to detect indentation for the following block
-                    if i+1 < len(lines):
-                        m = re.match(r'^(\s*)', lines[i+1])
-                        indent = m.group(1) if m else ''
-                        out.append(indent + '  interactiveMode: Never\n')
-                i += 1
-            with open(kp, 'w', encoding='utf-8') as f:
-                f.writelines(out)
-            PY
+            # Safely insert `interactiveMode: Never` after any `exec:` mapping line using awk
+            awk '
+            { print $0 }
+            /^[[:space:]]*exec:[[:space:]]*$/ {
+              if (getline nxt) {
+                # compute indentation of the following line and emit interactiveMode with same indent
+                if (match(nxt, /[^ \t]/)) {
+                  indent = substr(nxt, 1, RSTART-1)
+                } else { indent = "" }
+                print indent "  interactiveMode: Never"
+                print nxt
+              }
+            }
+            ' "$GITHUB_WORKSPACE/kubeconfig" > "$GITHUB_WORKSPACE/kubeconfig.fixed" && mv "$GITHUB_WORKSPACE/kubeconfig.fixed" "$GITHUB_WORKSPACE/kubeconfig"
             echo "KUBECONFIG=$GITHUB_WORKSPACE/kubeconfig" >> "$GITHUB_ENV"
             else
             echo "KUBE_CONFIG secret is empty. Exiting debug to avoid accidental cluster access.";
