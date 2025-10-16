@@ -12,6 +12,7 @@ jobs:
     runs-on: ubuntu-latest
     outputs:
       image_sha: ${{ steps.set-vars.outputs.IMAGE_SHA }}
+      staging_tag: ${{ steps.set-vars.outputs.STAGING_TAG }}
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -145,8 +146,11 @@ jobs:
         run: |
           ACCOUNT_ID=$(aws sts get-caller-identity --query Account --output text)
           ECR_URI=${ACCOUNT_ID}.dkr.ecr.${{ env.AWS_REGION }}.amazonaws.com/ecommerce-ecr-frontend
-          IMAGE_SHA=${{ needs.build-and-push.outputs.image_sha }}
-          kubectl set image deployment/ecommerce-frontend -n staging frontend=$ECR_URI:${IMAGE_SHA} --record
+          # Prefer the explicitly pushed unique STAGING_TAG when available to avoid 'latest' or immutable-tag issues
+          STAGING_TAG=${{ needs.build-and-push.outputs.staging_tag }}
+          IMAGE_TO_USE=${STAGING_TAG:-${{ needs.build-and-push.outputs.image_sha }}}
+          echo "Using image tag: ${IMAGE_TO_USE}"
+          kubectl set image deployment/ecommerce-frontend -n staging frontend=$ECR_URI:${IMAGE_TO_USE} --record
           kubectl rollout status deployment/ecommerce-frontend -n staging --timeout=180s
 
       - name: Wait for LoadBalancer hostname (staging service)
