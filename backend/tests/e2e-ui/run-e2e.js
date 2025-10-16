@@ -3,6 +3,10 @@ const puppeteer = require('puppeteer');
 const fs = require('fs');
 const path = require('path');
 
+// Artifacts directory for E2E debug (screenshots, console logs, request failures)
+const ARTIFACTS_DIR = path.resolve(__dirname, 'artifacts');
+if (!fs.existsSync(ARTIFACTS_DIR)) fs.mkdirSync(ARTIFACTS_DIR, { recursive: true });
+
 const API_URL = process.env.API_URL || 'https://w3rtebdo58.execute-api.us-east-1.amazonaws.com/prod';
 const FRONTEND_URL = process.env.FRONTEND_URL || 'http://a09c4d3270e0d46b880b671b9586f27e-1552508925.us-east-1.elb.amazonaws.com';
 
@@ -51,28 +55,106 @@ async function runE2E() {
 
   const exe = findChrome();
   if (!exe) console.warn('No system Chrome/Chromium executable found; Puppeteer may fail to launch');
-  const launchOpts = { headless: 'new', args: ['--no-sandbox', '--disable-setuid-sandbox'] };
+  const launchOpts = {
+    headless: 'new',
+    args: [
+      '--no-sandbox',
+      '--disable-setuid-sandbox',
+      '--disable-extensions',
+      '--disable-component-extensions-with-background-pages',
+      '--disable-popup-blocking',
+      '--disable-dev-shm-usage',
+      '--no-default-browser-check',
+      '--disable-features=TranslateUI,OptimizationHints,IsolateOrigins,site-per-process',
+      '--disable-background-networking',
+      '--disable-translate',
+      '--disable-client-side-phishing-detection'
+    ]
+  };
   if (exe) launchOpts.executablePath = exe;
   const browser = await puppeteer.launch(launchOpts);
   const page = await browser.newPage();
   page.setDefaultTimeout(20000);
+  // Set a deterministic viewport for screenshots
+  try { await page.setViewport({ width: 1280, height: 900 }); } catch (e) {}
+
+  // Debug collectors
+  const consoleMsgs = [];
+  const requestFails = [];
+  page.on('console', msg => {
+    try {
+      consoleMsgs.push({ type: msg.type(), text: msg.text(), args: msg.args().map(a => a.toString()) });
+    } catch (e) { consoleMsgs.push({ type: 'error', text: String(msg) }); }
+  });
+  page.on('requestfailed', req => {
+    const info = { url: req.url(), method: req.method(), failure: req.failure(), resourceType: req.resourceType() };
+    requestFails.push(info);
+    console.error('Request failed:', info.url, info.failure && info.failure.errorText);
+  });
+
+  // Also collect all requests and responses to help diagnose blocked requests
+  const allRequests = [];
+  page.on('request', req => {
+    try { allRequests.push({ url: req.url(), method: req.method(), resourceType: req.resourceType(), headers: req.headers() }); } catch (e) {}
+  });
+  const allResponses = [];
+  page.on('response', async res => {
+    try {
+      allResponses.push({ url: res.url(), status: res.status(), headers: res.headers() });
+    } catch (e) {}
+  });
+
+  async function saveArtifacts(tag) {
+    const prefix = path.join(ARTIFACTS_DIR, `${Date.now()}-${tag}`);
+    try { fs.writeFileSync(prefix + '-console.json', JSON.stringify(consoleMsgs, null, 2)); } catch(e){}
+    try { fs.writeFileSync(prefix + '-requests-failed.json', JSON.stringify(requestFails, null, 2)); } catch(e){}
+    try { fs.writeFileSync(prefix + '-requests-all.json', JSON.stringify(allRequests, null, 2)); } catch(e){}
+    try { fs.writeFileSync(prefix + '-responses-all.json', JSON.stringify(allResponses, null, 2)); } catch(e){}
+    try { await page.screenshot({ path: prefix + '-screenshot.png', fullPage: true }); } catch(e){}
+    // Try to save page HTML as fallback
+    try { const html = await page.content(); fs.writeFileSync(prefix + '-page.html', html); } catch(e){}
+  }
 
   console.log('Opening frontend URL:', FRONTEND_URL);
-  await page.goto(FRONTEND_URL, { waitUntil: 'networkidle2' });
+  try {
+    await page.goto(FRONTEND_URL, { waitUntil: 'networkidle2' });
+  } catch (err) {
+    console.error('Navigation to frontend failed:', err);
+    await saveArtifacts('nav-failure');
+    throw err;
+  }
 
   // navigate to /login
-  await page.goto(FRONTEND_URL + '/login', { waitUntil: 'networkidle2' });
+  try {
+    await page.goto(FRONTEND_URL + '/login', { waitUntil: 'networkidle2' });
+  } catch (err) {
+    console.error('Navigation to /login failed:', err);
+    await saveArtifacts('login-nav-failure');
+    throw err;
+  }
 
   // Fill login form
   await page.type('input[name="username"]', TEST_USER.username);
   await page.type('input[name="password"]', TEST_USER.password);
-  await Promise.all([
-    page.click('button[type="submit"]'),
-    page.waitForNavigation({ waitUntil: 'networkidle2' })
-  ]);
+  try {
+    await Promise.all([
+      page.click('button[type="submit"]'),
+      page.waitForNavigation({ waitUntil: 'networkidle2' })
+    ]);
+  } catch (err) {
+    console.error('Login flow failed:', err);
+    await saveArtifacts('login-flow-failure');
+    throw err;
+  }
 
   console.log('Logged in, navigating to root (products)');
-  await page.goto(FRONTEND_URL + '/', { waitUntil: 'networkidle2' });
+  try {
+    await page.goto(FRONTEND_URL + '/', { waitUntil: 'networkidle2' });
+  } catch (err) {
+    console.error('Navigation to root failed:', err);
+    await saveArtifacts('root-nav-failure');
+    throw err;
+  }
 
   // Create a new product via the form on the right
   const name = 'E2E Product ' + Date.now();
@@ -81,9 +163,15 @@ async function runE2E() {
   await page.type('textarea[placeholder="Descrição"]', 'Created by E2E');
   await page.click('button.btn-success');
   console.log('Waiting for product to appear in the table...');
-  await page.waitForFunction((nm) => {
-    return Array.from(document.querySelectorAll('table tbody tr td')).some(td => td.innerText.includes(nm));
-  }, { timeout: 15000 }, name);
+  try {
+    await page.waitForFunction((nm) => {
+      return Array.from(document.querySelectorAll('table tbody tr td')).some(td => td.innerText.includes(nm));
+    }, { timeout: 15000 }, name);
+  } catch (err) {
+    console.error('Waiting for created product failed:', err);
+    await saveArtifacts('wait-for-product-failure');
+    throw err;
+  }
 
   // Click Edit on the product row (find the button by traversing rows)
   const rows = await page.$$('table tbody tr');
@@ -92,7 +180,10 @@ async function runE2E() {
     const text = await row.$eval('td', td => td.innerText);
     if (text.includes(name)) { targetRow = row; break; }
   }
-  if (!targetRow) throw new Error('Created product row not found');
+  if (!targetRow) {
+    await saveArtifacts('no-product-row');
+    throw new Error('Created product row not found');
+  }
 
   // Click Edit
   const editBtn = await targetRow.$('button.btn-primary');
@@ -116,14 +207,21 @@ async function runE2E() {
       const delBtn = await row.$('button.btn-danger');
       await delBtn.click();
       console.log('Waiting for product to be removed from the table...');
-      await page.waitForFunction((nm) => {
-        return !Array.from(document.querySelectorAll('table tbody tr td')).some(td => td.innerText.includes(nm));
-      }, { timeout: 15000 }, name);
+      try {
+        await page.waitForFunction((nm) => {
+          return !Array.from(document.querySelectorAll('table tbody tr td')).some(td => td.innerText.includes(nm));
+        }, { timeout: 15000 }, name);
+      } catch (err) {
+        console.error('Waiting for product removal failed:', err);
+        await saveArtifacts('remove-wait-failure');
+        throw err;
+      }
       break;
     }
   }
 
   console.log('Product removed, E2E completed');
+  try { await saveArtifacts('success'); } catch(e){}
   await browser.close();
 }
 
