@@ -23,14 +23,6 @@ jobs:
         with:
           version: 'latest'
 
-      - name: Configure AWS credentials for kubeconfig exec-plugin
-        if: ${{ secrets.AWS_ACCESS_KEY_ID != '' }}
-        uses: aws-actions/configure-aws-credentials@v2
-        with:
-          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
-          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
-          aws-region: ${{ secrets.AWS_REGION }}
-
       - name: Configure kubeconfig from secret
         shell: bash
         env:
@@ -41,20 +33,51 @@ jobs:
             # normalize exec plugin apiVersion and add interactiveMode: Never when needed
             sed -E -i 's/client.authentication\.kxs\.io/client.authentication.k8s.io/g' "$GITHUB_WORKSPACE/kubeconfig" || true
             sed -E -i 's/client.authentication.k8s.io\/v[0-9a-zA-Z._-]*/client.authentication.k8s.io\/v1/g' "$GITHUB_WORKSPACE/kubeconfig" || true
-            awk '{ print $0; if ($0 ~ /^[[:space:]]*exec:[[:space:]]*$/) { m = match($0, /[^ \t]/); indent = (m>1) ? substr($0,1,m-1) : ""; if (getline nxt) { print indent "  interactiveMode: Never"; print nxt; } } }' "$GITHUB_WORKSPACE/kubeconfig" > "$GITHUB_WORKSPACE/kubeconfig.fixed" && mv "$GITHUB_WORKSPACE/kubeconfig.fixed" "$GITHUB_WORKSPACE/kubeconfig"
+            # Safely insert `interactiveMode: Never` after any `exec:` mapping line using Python
+            python3 - <<'PY'
+            import os, re
+            kp = os.path.join(os.environ.get('GITHUB_WORKSPACE','.'), 'kubeconfig')
+            try:
+                with open(kp, 'r', encoding='utf-8') as f:
+                    lines = f.readlines()
+            except Exception:
+                lines = []
+            out = []
+            exec_re = re.compile(r'^\s*exec:\s*$')
+            i = 0
+            while i < len(lines):
+                out.append(lines[i])
+                if exec_re.match(lines[i]):
+                    # peek next line to detect indentation for the following block
+                    if i+1 < len(lines):
+                        m = re.match(r'^(\s*)', lines[i+1])
+                        indent = m.group(1) if m else ''
+                        out.append(indent + '  interactiveMode: Never\n')
+                i += 1
+            with open(kp, 'w', encoding='utf-8') as f:
+                f.writelines(out)
+            PY
             echo "KUBECONFIG=$GITHUB_WORKSPACE/kubeconfig" >> "$GITHUB_ENV"
             else
             echo "KUBE_CONFIG secret is empty. Exiting debug to avoid accidental cluster access.";
             exit 1
           fi
 
-        - name: Refresh kubeconfig via AWS (ensure exec-plugin uses job credentials)
-          if: ${{ secrets.AWS_ACCESS_KEY_ID != '' && secrets.EKS_CLUSTER_NAME != '' }}
-          run: |
-            echo "Refreshing kubeconfig using AWS CLI so exec-plugin picks up credentials"
-            aws sts get-caller-identity || true
-            aws eks update-kubeconfig --name "${{ secrets.EKS_CLUSTER_NAME }}" --region ${{ secrets.AWS_REGION }} --kubeconfig $GITHUB_WORKSPACE/kubeconfig
-            echo "KUBECONFIG=$GITHUB_WORKSPACE/kubeconfig" >> $GITHUB_ENV
+      - name: Configure AWS credentials for kubeconfig exec-plugin
+        if: ${{ secrets.AWS_ACCESS_KEY_ID != '' }}
+        uses: aws-actions/configure-aws-credentials@v2
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ${{ secrets.AWS_REGION }}
+
+      - name: Refresh kubeconfig via AWS (ensure exec-plugin uses job credentials)
+        if: ${{ secrets.AWS_ACCESS_KEY_ID != '' && secrets.EKS_CLUSTER_NAME != '' }}
+        run: |
+          echo "Refreshing kubeconfig using AWS CLI so exec-plugin picks up credentials"
+          aws sts get-caller-identity || true
+          aws eks update-kubeconfig --name "${{ secrets.EKS_CLUSTER_NAME }}" --region ${{ secrets.AWS_REGION }} --kubeconfig $GITHUB_WORKSPACE/kubeconfig
+          echo "KUBECONFIG=$GITHUB_WORKSPACE/kubeconfig" >> $GITHUB_ENV
 
       - name: Show cluster and namespace info
         run: |
