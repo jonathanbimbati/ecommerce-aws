@@ -90,6 +90,14 @@ jobs:
           }' $GITHUB_WORKSPACE/kubeconfig > $GITHUB_WORKSPACE/kubeconfig.fixed && mv $GITHUB_WORKSPACE/kubeconfig.fixed $GITHUB_WORKSPACE/kubeconfig
           echo "KUBECONFIG=$GITHUB_WORKSPACE/kubeconfig" >> $GITHUB_ENV
 
+      - name: Configure AWS credentials for kubeconfig exec-plugin
+        if: ${{ env.AWS_ACCESS_KEY_ID != '' }}
+        uses: aws-actions/configure-aws-credentials@v2
+        with:
+          aws-access-key-id: ${{ env.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ env.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ${{ env.AWS_REGION }}
+
       - name: Configure Kubeconfig via AWS (if KUBE_CONFIG not provided)
         if: ${{ env.KUBE_CONFIG == '' && env.AWS_ACCESS_KEY_ID != '' }}
         uses: aws-actions/configure-aws-credentials@v2
