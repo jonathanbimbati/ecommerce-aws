@@ -60,6 +60,7 @@ async function runE2E() {
     args: [
       '--no-sandbox',
       '--disable-setuid-sandbox',
+      '--ignore-certificate-errors',
       '--disable-extensions',
       '--disable-component-extensions-with-background-pages',
       '--disable-popup-blocking',
