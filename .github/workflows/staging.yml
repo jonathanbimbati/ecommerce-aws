@@ -49,8 +49,16 @@ jobs:
           docker build -t $ECR_URI:${IMAGE_SHA} frontend/
           docker tag $ECR_URI:${IMAGE_SHA} $ECR_URI:${STAGING_TAG}
           aws ecr get-login-password --region ${{ env.AWS_REGION }} | docker login --username AWS --password-stdin $ACCOUNT_ID.dkr.ecr.${{ env.AWS_REGION }}.amazonaws.com
-          docker push $ECR_URI:${IMAGE_SHA}
-          docker push $ECR_URI:${STAGING_TAG}
+
+          # If image tag already exists in ECR (repository has immutable tags), skip pushing to avoid error
+          if aws ecr describe-images --repository-name ecommerce-ecr-frontend --image-ids imageTag=${IMAGE_SHA} >/dev/null 2>&1; then
+            echo "Image tag ${IMAGE_SHA} already exists in ECR; skipping push of identical tag."
+          else
+            echo "Pushing image ${ECR_URI}:${IMAGE_SHA} and tag ${STAGING_TAG}"
+            docker push $ECR_URI:${IMAGE_SHA}
+            docker push $ECR_URI:${STAGING_TAG}
+          fi
+
           echo "IMAGE_SHA=${IMAGE_SHA}" >> $GITHUB_OUTPUT
           echo "ECR_URI=${ECR_URI}" >> $GITHUB_OUTPUT
 
