@@ -116,6 +116,22 @@ async function runE2E() {
   }
 
   console.log('Opening frontend URL:', FRONTEND_URL);
+  // Do a server-side fetch of the frontend root and save the response to artifacts.
+  // This helps diagnose cases where the browser blocks navigation but the server is reachable via plain HTTP.
+  try {
+    const resp = await fetch(FRONTEND_URL, { method: 'GET' });
+    let bodyText = '';
+    try { bodyText = await resp.text(); } catch (e) { bodyText = '<failed to read body>'; }
+    const headersObj = {};
+    try { for (const [k, v] of resp.headers.entries()) headersObj[k] = v; } catch (e) {}
+    try {
+      fs.writeFileSync(path.join(ARTIFACTS_DIR, `${Date.now()}-http-root.json`), JSON.stringify({ url: FRONTEND_URL, status: resp.status, headers: headersObj, bodySnippet: bodyText.slice(0, 2000) }, null, 2));
+      console.log('Saved HTTP root response to artifacts');
+    } catch (e) { console.error('Failed to write http-root artifact:', e); }
+  } catch (e) {
+    console.error('Server-side fetch to frontend root failed:', e);
+  }
+
   try {
     await page.goto(FRONTEND_URL, { waitUntil: 'networkidle2' });
   } catch (err) {
