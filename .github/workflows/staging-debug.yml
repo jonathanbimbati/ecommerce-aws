@@ -68,6 +68,26 @@ jobs:
         run: |
           kubectl get pods -n staging -o wide || true
 
+      - name: Describe cluster nodes
+        run: |
+          echo "Describing cluster nodes..."
+          kubectl get nodes -o wide || true
+          kubectl describe nodes || true
+
+      - name: Collect aws-vpc-cni (aws-node) diagnostics
+        run: |
+          echo "Listing kube-system pods..."
+          kubectl get pods -n kube-system -o wide || true
+          echo "Describing aws-node pods..."
+          kubectl -n kube-system get pods -l k8s-app=aws-node -o name || true
+          for p in $(kubectl -n kube-system get pods -l k8s-app=aws-node -o jsonpath='{.items[*].metadata.name}' 2>/dev/null || echo ""); do
+            echo "--- aws-node pod: $p ---"
+            kubectl -n kube-system describe pod $p || true
+            echo "--- logs for $p ---"
+            kubectl -n kube-system logs $p --tail=200 || true
+            echo "--- end logs for $p ---"
+          done
+
       - name: Describe pods (with events)
         run: |
           kubectl describe pods -n staging --show-events || true
