@@ -209,7 +209,8 @@ async function runE2E() {
   }
 
   try {
-    await page.goto(FRONTEND_URL, { waitUntil: 'networkidle2', timeout: 60000 });
+    // Use domcontentloaded to avoid waiting on slow external resources (CDNs)
+    await page.goto(FRONTEND_URL, { waitUntil: 'domcontentloaded', timeout: 60000 });
   } catch (err) {
     console.error('Navigation to frontend failed:', err);
     await saveArtifacts('nav-failure');
@@ -218,7 +219,7 @@ async function runE2E() {
 
   // navigate to /login
   try {
-    await page.goto(FRONTEND_URL + '/login', { waitUntil: 'networkidle2', timeout: 60000 });
+    await page.goto(FRONTEND_URL + '/login', { waitUntil: 'domcontentloaded', timeout: 60000 });
   } catch (err) {
     console.error('Navigation to /login failed:', err);
     await saveArtifacts('login-nav-failure');
@@ -231,7 +232,7 @@ async function runE2E() {
   try {
     await Promise.all([
       page.click('button[type="submit"]'),
-      page.waitForNavigation({ waitUntil: 'networkidle2', timeout: 60000 })
+      page.waitForNavigation({ waitUntil: 'domcontentloaded', timeout: 60000 })
     ]);
   } catch (err) {
     console.error('Login flow failed:', err);
@@ -241,7 +242,7 @@ async function runE2E() {
 
   console.log('Logged in, navigating to root (products)');
   try {
-    await page.goto(FRONTEND_URL + '/', { waitUntil: 'networkidle2', timeout: 60000 });
+    await page.goto(FRONTEND_URL + '/', { waitUntil: 'domcontentloaded', timeout: 60000 });
   } catch (err) {
     console.error('Navigation to root failed:', err);
     await saveArtifacts('root-nav-failure');
