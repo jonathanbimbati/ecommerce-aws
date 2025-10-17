@@ -179,9 +179,6 @@ jobs:
           if [ -z "$HOST" ]; then echo "LoadBalancer hostname not available"; exit 1; fi
 
       - name: Run E2E tests against staging
-        env:
-          PUPPETEER_SKIP_CHROMIUM_DOWNLOAD: 'true'
-          PUPPETEER_EXECUTABLE_PATH: '/snap/bin/chromium'
         run: |
           # Create artifacts dir for diagnostic outputs
           mkdir -p backend/tests/e2e-ui/artifacts || true
@@ -215,6 +212,19 @@ jobs:
               openssl s_client -showcerts -servername "$FRONTEND_HOST" -connect "$FRONTEND_HOST:443" >> backend/tests/e2e-ui/artifacts/openssl-s_client.txt 2>&1 || true
             fi
             echo "-----END OPENSSL S_CLIENT OUTPUT-----" >> backend/tests/e2e-ui/artifacts/openssl-s_client.txt || true
+          fi
+
+          # Install Chromium on the runner (ubuntu-latest). Using apt-get because
+          # snap may not be available in the Actions image. We then point
+          # PUPPETEER_EXECUTABLE_PATH at the system binary so puppeteer uses it.
+          sudo apt-get update && sudo apt-get install -y chromium-browser chromium
+          if [ -x "/usr/bin/chromium-browser" ]; then
+            export PUPPETEER_EXECUTABLE_PATH=/usr/bin/chromium-browser
+          elif [ -x "/usr/bin/chromium" ]; then
+            export PUPPETEER_EXECUTABLE_PATH=/usr/bin/chromium
+          else
+            echo "No system chromium binary found; allowing puppeteer to download its browser"
+            export PUPPETEER_SKIP_CHROMIUM_DOWNLOAD=''
           fi
 
           # Export FRONTEND_URL at runtime so Puppeteer sees the correct host
