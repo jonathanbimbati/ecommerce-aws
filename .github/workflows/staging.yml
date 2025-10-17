@@ -12,6 +12,7 @@ jobs:
     runs-on: ubuntu-latest
     outputs:
       image_sha: ${{ steps.set-vars.outputs.IMAGE_SHA }}
+      staging_tag: ${{ steps.set-vars.outputs.STAGING_TAG }}
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -50,16 +51,30 @@ jobs:
           docker tag $ECR_URI:${IMAGE_SHA} $ECR_URI:${STAGING_TAG}
           aws ecr get-login-password --region ${{ env.AWS_REGION }} | docker login --username AWS --password-stdin $ACCOUNT_ID.dkr.ecr.${{ env.AWS_REGION }}.amazonaws.com
 
-          # If image tag already exists in ECR (repository has immutable tags), skip pushing to avoid error
+          # Push logic that is safe for IMMUTABLE tag repositories:
+          # - If IMAGE_SHA already exists, ensure STAGING_TAG exists but do not attempt to overwrite it.
+          # - If IMAGE_SHA does not exist, push IMAGE_SHA and create STAGING_TAG (unless it already exists).
           if aws ecr describe-images --repository-name ecommerce-ecr-frontend --image-ids imageTag=${IMAGE_SHA} >/dev/null 2>&1; then
-            echo "Image tag ${IMAGE_SHA} already exists in ECR; skipping push of identical tag."
+            echo "Image tag ${IMAGE_SHA} already exists in ECR; ensuring staging tag ${STAGING_TAG} exists without overwriting."
+            if aws ecr describe-images --repository-name ecommerce-ecr-frontend --image-ids imageTag=${STAGING_TAG} >/dev/null 2>&1; then
+              echo "Staging tag ${STAGING_TAG} already exists. Skipping push."
+            else
+              echo "Pushing only staging tag ${STAGING_TAG}"
+              docker push $ECR_URI:${STAGING_TAG}
+            fi
           else
-            echo "Pushing image ${ECR_URI}:${IMAGE_SHA} and tag ${STAGING_TAG}"
+            echo "Pushing image ${ECR_URI}:${IMAGE_SHA} and tag ${STAGING_TAG} (if staging tag not already present)"
             docker push $ECR_URI:${IMAGE_SHA}
-            docker push $ECR_URI:${STAGING_TAG}
+            if aws ecr describe-images --repository-name ecommerce-ecr-frontend --image-ids imageTag=${STAGING_TAG} >/dev/null 2>&1; then
+              echo "Staging tag ${STAGING_TAG} already exists after pushing IMAGE_SHA. Skipping pushing staging tag."
+            else
+              docker push $ECR_URI:${STAGING_TAG}
+            fi
           fi
 
+          # Expose both IMAGE_SHA and STAGING_TAG so downstream steps can choose the exact tag to use
           echo "IMAGE_SHA=${IMAGE_SHA}" >> $GITHUB_OUTPUT
+          echo "STAGING_TAG=${STAGING_TAG}" >> $GITHUB_OUTPUT
           echo "ECR_URI=${ECR_URI}" >> $GITHUB_OUTPUT
 
   deploy-and-test-staging:
@@ -135,13 +150,20 @@ jobs:
       - name: Apply frontend k8s manifests to staging
         run: |
           kubectl apply -f k8s/frontend-deployment.yaml -n staging || true
+          # Apply backend service alias so legacy hostname 'backend' resolves to ecommerce-backend
+          kubectl apply -f k8s/backend-service-alias.yaml -n staging || true
 
       - name: Replace deployment image with staging sha tag
         run: |
           ACCOUNT_ID=$(aws sts get-caller-identity --query Account --output text)
           ECR_URI=${ACCOUNT_ID}.dkr.ecr.${{ env.AWS_REGION }}.amazonaws.com/ecommerce-ecr-frontend
-          IMAGE_SHA=${{ needs.build-and-push.outputs.image_sha }}
-          kubectl set image deployment/ecommerce-frontend -n staging frontend=$ECR_URI:${IMAGE_SHA} --record
+          # Prefer the explicitly pushed unique STAGING_TAG when available to avoid 'latest' or immutable-tag issues
+          STAGING_TAG=${{ needs.build-and-push.outputs.staging_tag }}
+          IMAGE_TO_USE=${STAGING_TAG:-${{ needs.build-and-push.outputs.image_sha }}}
+          echo "Using image tag: ${IMAGE_TO_USE}"
+          kubectl set image deployment/ecommerce-frontend -n staging frontend=$ECR_URI:${IMAGE_TO_USE} --record
+          # Force a rollout restart to ensure every pod pulls the image (helps avoid stale cached images on nodes)
+          kubectl rollout restart deployment/ecommerce-frontend -n staging || true
           kubectl rollout status deployment/ecommerce-frontend -n staging --timeout=180s
 
       - name: Wait for LoadBalancer hostname (staging service)
@@ -157,17 +179,82 @@ jobs:
           if [ -z "$HOST" ]; then echo "LoadBalancer hostname not available"; exit 1; fi
 
       - name: Run E2E tests against staging
-        env:
-          FRONTEND_URL: http://${{ env.FRONTEND_HOST }}
-          PUPPETEER_SKIP_CHROMIUM_DOWNLOAD: 'true'
-          PUPPETEER_EXECUTABLE_PATH: '/snap/bin/chromium'
         run: |
+          # Create artifacts dir for diagnostic outputs
+          mkdir -p backend/tests/e2e-ui/artifacts || true
+
+          # Use the runtime FRONTEND_HOST set by the previous step (written to GITHUB_ENV).
+          echo "FRONTEND_HOST runtime value: '$FRONTEND_HOST'"
+          if [ -z "$FRONTEND_HOST" ]; then
+            echo "FRONTEND_HOST is empty - cannot collect TLS info" > backend/tests/e2e-ui/artifacts/tls-error.txt
+          else
+            # Collect TLS diagnostic information from the LB before running E2E tests.
+            echo "Collecting TLS diagnostic info for: $FRONTEND_HOST"
+            # Record timestamp and resolver info
+            date > backend/tests/e2e-ui/artifacts/tls-when.txt || true
+            echo "Resolver info:" > backend/tests/e2e-ui/artifacts/tls-resolver.txt || true
+            # Try to resolve the hostname
+            if command -v nslookup >/dev/null 2>&1; then
+              nslookup "$FRONTEND_HOST" >> backend/tests/e2e-ui/artifacts/tls-resolver.txt 2>&1 || true
+            fi
+            getent hosts "$FRONTEND_HOST" >> backend/tests/e2e-ui/artifacts/tls-resolver.txt 2>&1 || true
+
+            # Save curl headers and TLS handshake traces with conservative timeouts so we don't hang
+            curl -svI --connect-timeout 10 --max-time 20 "https://$FRONTEND_HOST" -D backend/tests/e2e-ui/artifacts/ssl-headers.txt -o backend/tests/e2e-ui/artifacts/ssl-body.html || true
+
+            # Save openssl s_client cert chain and connection diagnostics using timeout to avoid hangs
+            echo "-----BEGIN OPENSSL S_CLIENT OUTPUT-----" > backend/tests/e2e-ui/artifacts/openssl-s_client.txt || true
+            echo "Connecting to $FRONTEND_HOST:443" >> backend/tests/e2e-ui/artifacts/openssl-s_client.txt || true
+            # Use timeout (coreutils) to limit openssl runtime
+            if command -v timeout >/dev/null 2>&1; then
+              timeout 20 openssl s_client -showcerts -servername "$FRONTEND_HOST" -connect "$FRONTEND_HOST:443" >> backend/tests/e2e-ui/artifacts/openssl-s_client.txt 2>&1 || true
+            else
+              openssl s_client -showcerts -servername "$FRONTEND_HOST" -connect "$FRONTEND_HOST:443" >> backend/tests/e2e-ui/artifacts/openssl-s_client.txt 2>&1 || true
+            fi
+            echo "-----END OPENSSL S_CLIENT OUTPUT-----" >> backend/tests/e2e-ui/artifacts/openssl-s_client.txt || true
+          fi
+
+          # Install Chromium on the runner (ubuntu-latest). Using apt-get because
+          # snap may not be available in the Actions image. We then point
+          # PUPPETEER_EXECUTABLE_PATH at the system binary so puppeteer uses it.
+          sudo apt-get update && sudo apt-get install -y chromium-browser chromium
+          if [ -x "/usr/bin/chromium-browser" ]; then
+            export PUPPETEER_EXECUTABLE_PATH=/usr/bin/chromium-browser
+          elif [ -x "/usr/bin/chromium" ]; then
+            export PUPPETEER_EXECUTABLE_PATH=/usr/bin/chromium
+          else
+            echo "No system chromium binary found; allowing puppeteer to download its browser"
+            export PUPPETEER_SKIP_CHROMIUM_DOWNLOAD=''
+          fi
+
+          # Export FRONTEND_URL at runtime so Puppeteer sees the correct host
+          export FRONTEND_URL="http://$FRONTEND_HOST"
+
+          # Run the E2E tests
           cd backend/tests/e2e-ui
           npm ci
           npm run test
 
+      - name: Debug list E2E artifact directory (for troubleshooting)
+        if: ${{ always() }}
+        run: |
+          echo "Workspace: $(pwd)"
+          echo "Listing backend/tests/e2e-ui (top level)" || true
+          ls -la backend/tests/e2e-ui || true
+          echo "Listing backend/tests/e2e-ui/artifacts (if exists)" || true
+          ls -la backend/tests/e2e-ui/artifacts || true
+          echo "Recursive find (show up to 3 levels)" || true
+          find backend/tests/e2e-ui -maxdepth 3 -type f -print || true
+
+      - name: Upload E2E artifacts (if any)
+        if: ${{ always() }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: e2e-artifacts
+          path: backend/tests/e2e-ui/artifacts/**
+
       - name: Promote to production (automatic)
-        if: success()
+        if: ${{ success() }}
         run: |
           echo "Promotion: updating production deployment to use staging image"
           ACCOUNT_ID=$(aws sts get-caller-identity --query Account --output text)

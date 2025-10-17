@@ -34,7 +34,11 @@ spec:
       containers:
         - name: frontend
           image: 199299155478.dkr.ecr.us-east-1.amazonaws.com/ecommerce-ecr-frontend:latest
-          imagePullPolicy: IfNotPresent
+          # Use Always so CI can reliably force pods to pull the newly-built image when we update
+          # the deployment (for example via `kubectl set image` + rollout restart). This avoids
+          # cases where an older image with a stale nginx config is already present on the node
+          # and would be used because of IfNotPresent.
+          imagePullPolicy: Always
           env:
             - name: API_URL
               value: "https://w3rtebdo58.execute-api.us-east-1.amazonaws.com/prod"
