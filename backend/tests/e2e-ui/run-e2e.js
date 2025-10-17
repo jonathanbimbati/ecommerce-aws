@@ -73,7 +73,18 @@ async function runE2E() {
       '--disable-features=TranslateUI,OptimizationHints,IsolateOrigins,site-per-process',
       '--disable-background-networking',
       '--disable-translate',
-      '--disable-client-side-phishing-detection'
+      '--disable-client-side-phishing-detection',
+      // Aggressive flags to try to bypass Safe Browsing / interstitials in CI
+      '--safebrowsing-disable-auto-update',
+      '--safebrowsing-disable-download-protection',
+      '--disable-features=SafeBrowsing,WebSecurity,BlockInsecurePrivateNetworkRequests',
+      '--disable-component-update',
+      '--disable-client-side-phishing-detection',
+      '--disable-sync',
+      '--disable-default-apps',
+      '--disable-infobars',
+      '--disable-notifications',
+      '--enable-automation'
     ]
   };
   if (exe) launchOpts.executablePath = exe;
