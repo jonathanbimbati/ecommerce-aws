@@ -184,6 +184,21 @@ jobs:
           PUPPETEER_SKIP_CHROMIUM_DOWNLOAD: 'true'
           PUPPETEER_EXECUTABLE_PATH: '/snap/bin/chromium'
         run: |
+          # Create artifacts dir for diagnostic outputs
+          mkdir -p backend/tests/e2e-ui/artifacts || true
+
+          # Collect TLS diagnostic information from the LB before running E2E tests.
+          # Save headers and body (curl -vk will show TLS handshake info) and collect the cert chain via openssl.
+          echo "Collecting TLS diagnostic info for: ${{ env.FRONTEND_HOST }}"
+          # Save curl verbose output (headers and TLS handshake traces)
+          curl -vk "https://${{ env.FRONTEND_HOST }}" -D backend/tests/e2e-ui/artifacts/ssl-headers.txt -o backend/tests/e2e-ui/artifacts/ssl-body.html || true
+          # Save openssl s_client cert chain and connection diagnostics
+          echo "-----BEGIN OPENSSL S_CLIENT OUTPUT-----" > backend/tests/e2e-ui/artifacts/openssl-s_client.txt || true
+          echo "Connecting to ${{ env.FRONTEND_HOST }}:443" >> backend/tests/e2e-ui/artifacts/openssl-s_client.txt || true
+          openssl s_client -showcerts -servername "${{ env.FRONTEND_HOST }}" -connect "${{ env.FRONTEND_HOST }}:443" >> backend/tests/e2e-ui/artifacts/openssl-s_client.txt 2>&1 || true
+          echo "-----END OPENSSL S_CLIENT OUTPUT-----" >> backend/tests/e2e-ui/artifacts/openssl-s_client.txt || true
+
+          # Run the E2E tests
           cd backend/tests/e2e-ui
           npm ci
           npm run test
