@@ -4,6 +4,8 @@ metadata:
   name: ecommerce-frontend
   labels:
     app: ecommerce-frontend
+  annotations:
+    service.beta.kubernetes.io/aws-load-balancer-additional-resource-tags: "Name=ecommerce-aws-ibm,Project=ecommerce-aws,Component=frontend"
 spec:
   ports:
     - port: 80
