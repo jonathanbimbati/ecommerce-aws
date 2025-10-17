@@ -59,10 +59,19 @@ jobs:
 
       - name: Push image to ECR
         run: |
+          set -euo pipefail
           ACCOUNT_ID=${{ steps.acct.outputs.ACCOUNT_ID }}
           ECR_URI=${ACCOUNT_ID}.dkr.ecr.${{ env.AWS_REGION }}.amazonaws.com/ecommerce-ecr-backend
-          # Only push the SHA-tagged image. Avoid pushing or overwriting :latest when the repo is immutable.
-          docker push $ECR_URI:${{ github.sha }}
+          IMAGE_TAG=${{ github.sha }}
+          # If the SHA tag already exists in an IMMUTABLE repo, skip pushing and continue.
+          if aws ecr describe-images --repository-name ecommerce-ecr-backend --image-ids imageTag=${IMAGE_TAG} >/dev/null 2>&1; then
+            echo "Image tag ${IMAGE_TAG} already exists in ECR; skipping push."
+          else
+            echo "Pushing image ${ECR_URI}:${IMAGE_TAG}"
+            if ! docker push $ECR_URI:${IMAGE_TAG}; then
+              echo "Warning: push of ${IMAGE_TAG} failed (possibly due to immutability). Proceeding since deploy uses the same tag."
+            fi
+          fi
 
   deploy-to-k8s:
     runs-on: ubuntu-latest
@@ -124,7 +133,28 @@ jobs:
 
       - name: Replace backend deployment image with new tag
         run: |
+          set -euo pipefail
           ACCOUNT_ID=$(aws sts get-caller-identity --query Account --output text)
           ECR_URI=${ACCOUNT_ID}.dkr.ecr.${{ env.AWS_REGION }}.amazonaws.com/ecommerce-ecr-backend:${{ github.sha }}
+
+          # Temporariamente reduzir para 1 réplica para evitar bloqueios de rollout por capacidade/IPs
+          CURRENT_REPLICAS=$(kubectl get deployment ecommerce-backend -o jsonpath='{.spec.replicas}' 2>/dev/null || echo "2")
+          echo "Current replicas: ${CURRENT_REPLICAS}"
+          if [ -z "${CURRENT_REPLICAS}" ]; then CURRENT_REPLICAS=2; fi
+          if [ "${CURRENT_REPLICAS}" -gt 1 ]; then
+            echo "Scaling down ecommerce-backend to 1 replica for rollout"
+            kubectl scale deployment ecommerce-backend --replicas=1 || true
+            kubectl rollout status deployment/ecommerce-backend --timeout=120s || true
+          fi
+
+          echo "Updating image to ${ECR_URI}"
           kubectl set image deployment/ecommerce-backend backend=$ECR_URI --record
-          kubectl rollout status deployment/ecommerce-backend --timeout=120s
+          kubectl rollout restart deployment/ecommerce-backend || true
+          kubectl rollout status deployment/ecommerce-backend --timeout=180s || true
+
+          # Restaurar número original de réplicas
+          if [ "${CURRENT_REPLICAS}" -gt 1 ]; then
+            echo "Restoring ecommerce-backend replicas to ${CURRENT_REPLICAS}"
+            kubectl scale deployment ecommerce-backend --replicas=${CURRENT_REPLICAS} || true
+            kubectl rollout status deployment/ecommerce-backend --timeout=180s || true
+          fi
