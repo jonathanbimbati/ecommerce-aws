@@ -98,9 +98,40 @@ async function runE2E() {
   } catch (e) {
     console.warn('Could not set CDP Security.setIgnoreCertificateErrors:', e && e.message ? e.message : e);
   }
-  page.setDefaultTimeout(20000);
+  // Increase default timeouts to allow slower CI/remote networks some headroom
+  page.setDefaultTimeout(60000);
   // Set a deterministic viewport for screenshots
   try { await page.setViewport({ width: 1280, height: 900 }); } catch (e) {}
+
+  // Intercept requests and rewrite HTTPS -> HTTP for the staging frontend host.
+  // This prevents automatic navigation to https:// which times out when the LB
+  // doesn't terminate TLS in staging. We limit rewrites to the frontend host
+  // to avoid interfering with external resources.
+  try {
+    const frontendHostname = (() => {
+      try { return new URL(FRONTEND_URL).hostname; } catch (e) { return null; }
+    })();
+    if (frontendHostname) {
+      await page.setRequestInterception(true);
+      page.on('request', async req => {
+        try {
+          const url = req.url();
+          // Only rewrite navigation/document requests (to avoid touching images/fonts)
+          const isNav = req.isNavigationRequest && req.isNavigationRequest();
+          if (url.startsWith('https://') && new URL(url).hostname === frontendHostname && isNav) {
+            const newUrl = url.replace(/^https:/, 'http:');
+            console.log('Rewriting intercepted navigation', url, '->', newUrl);
+            return req.continue({ url: newUrl });
+          }
+        } catch (e) {
+          // fallthrough to continue below
+        }
+        try { return req.continue(); } catch (e) { /* ignore */ }
+      });
+    }
+  } catch (e) {
+    console.warn('Could not enable request interception for https->http rewrite:', e && e.message ? e.message : e);
+  }
 
   // Debug collectors
   const consoleMsgs = [];
@@ -141,23 +172,44 @@ async function runE2E() {
 
   console.log('Opening frontend URL:', FRONTEND_URL);
   // Do a server-side fetch of the frontend root and save the response to artifacts.
-  // This helps diagnose cases where the browser blocks navigation but the server is reachable via plain HTTP.
+  // Use redirect: 'manual' so we can detect 3xx Location headers pointing to https://
+  // and attempt an HTTP fallback to the equivalent http:// URL.
   try {
-    const resp = await fetch(FRONTEND_URL, { method: 'GET' });
+    const resp = await fetch(FRONTEND_URL, { method: 'GET', redirect: 'manual' });
     let bodyText = '';
     try { bodyText = await resp.text(); } catch (e) { bodyText = '<failed to read body>'; }
     const headersObj = {};
     try { for (const [k, v] of resp.headers.entries()) headersObj[k] = v; } catch (e) {}
+    const baseArtifact = { url: FRONTEND_URL, status: resp.status, headers: headersObj, bodySnippet: bodyText.slice(0, 2000) };
     try {
-      fs.writeFileSync(path.join(ARTIFACTS_DIR, `${Date.now()}-http-root.json`), JSON.stringify({ url: FRONTEND_URL, status: resp.status, headers: headersObj, bodySnippet: bodyText.slice(0, 2000) }, null, 2));
+      const name = `${Date.now()}-http-root`;
+      fs.writeFileSync(path.join(ARTIFACTS_DIR, `${name}.json`), JSON.stringify(baseArtifact, null, 2));
       console.log('Saved HTTP root response to artifacts');
+      // If server returned a Location header that points to https://, attempt an http fallback
+      const loc = (headersObj.location || headersObj.Location || headersObj.LOCATION);
+      if (loc && String(loc).toLowerCase().startsWith('https://')) {
+        try {
+          const fallback = loc.replace(/^https:/i, 'http:');
+          console.log('Detected redirect to https; attempting http fallback to', fallback);
+          const fbResp = await fetch(fallback, { method: 'GET', redirect: 'manual', timeout: 10000 });
+          let fbBody = '';
+          try { fbBody = await fbResp.text(); } catch (e) { fbBody = '<failed to read body>'; }
+          const fbHeaders = {};
+          try { for (const [k, v] of fbResp.headers.entries()) fbHeaders[k] = v; } catch (e) {}
+          fs.writeFileSync(path.join(ARTIFACTS_DIR, `${name}-http-fallback.json`), JSON.stringify({ requested: fallback, status: fbResp.status, headers: fbHeaders, bodySnippet: fbBody.slice(0,2000) }, null, 2));
+          console.log('Saved HTTP fallback response to artifacts');
+        } catch (e) {
+          console.error('HTTP fallback fetch failed:', e && e.message ? e.message : e);
+          try { fs.writeFileSync(path.join(ARTIFACTS_DIR, `${Date.now()}-http-fallback-err.txt`), String(e)); } catch (ee) {}
+        }
+      }
     } catch (e) { console.error('Failed to write http-root artifact:', e); }
   } catch (e) {
     console.error('Server-side fetch to frontend root failed:', e);
   }
 
   try {
-    await page.goto(FRONTEND_URL, { waitUntil: 'networkidle2' });
+    await page.goto(FRONTEND_URL, { waitUntil: 'networkidle2', timeout: 60000 });
   } catch (err) {
     console.error('Navigation to frontend failed:', err);
     await saveArtifacts('nav-failure');
@@ -166,7 +218,7 @@ async function runE2E() {
 
   // navigate to /login
   try {
-    await page.goto(FRONTEND_URL + '/login', { waitUntil: 'networkidle2' });
+    await page.goto(FRONTEND_URL + '/login', { waitUntil: 'networkidle2', timeout: 60000 });
   } catch (err) {
     console.error('Navigation to /login failed:', err);
     await saveArtifacts('login-nav-failure');
@@ -179,7 +231,7 @@ async function runE2E() {
   try {
     await Promise.all([
       page.click('button[type="submit"]'),
-      page.waitForNavigation({ waitUntil: 'networkidle2' })
+      page.waitForNavigation({ waitUntil: 'networkidle2', timeout: 60000 })
     ]);
   } catch (err) {
     console.error('Login flow failed:', err);
@@ -189,7 +241,7 @@ async function runE2E() {
 
   console.log('Logged in, navigating to root (products)');
   try {
-    await page.goto(FRONTEND_URL + '/', { waitUntil: 'networkidle2' });
+    await page.goto(FRONTEND_URL + '/', { waitUntil: 'networkidle2', timeout: 60000 });
   } catch (err) {
     console.error('Navigation to root failed:', err);
     await saveArtifacts('root-nav-failure');
