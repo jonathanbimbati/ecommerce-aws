@@ -8,7 +8,7 @@ const ARTIFACTS_DIR = path.resolve(__dirname, 'artifacts');
 if (!fs.existsSync(ARTIFACTS_DIR)) fs.mkdirSync(ARTIFACTS_DIR, { recursive: true });
 
 const API_URL = process.env.API_URL || 'https://w3rtebdo58.execute-api.us-east-1.amazonaws.com/prod';
-const FRONTEND_URL = process.env.FRONTEND_URL || 'http://a09c4d3270e0d46b880b671b9586f27e-1552508925.us-east-1.elb.amazonaws.com';
+const FRONTEND_URL = process.env.FRONTEND_URL || 'http://ecommerce-aws-nlb-20d654c0c2efadd3.elb.us-east-1.amazonaws.com';
 
 const TEST_USER = { username: 'testUI', password: 'testUI', name: 'Test UI' };
 
