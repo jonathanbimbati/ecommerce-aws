@@ -43,6 +43,7 @@ jobs:
       - name: Build Docker image and push tags
         id: set-vars
         run: |
+          set -euo pipefail
           ACCOUNT_ID=$(aws sts get-caller-identity --query Account --output text)
           ECR_URI=${ACCOUNT_ID}.dkr.ecr.${{ env.AWS_REGION }}.amazonaws.com/ecommerce-ecr-frontend
           IMAGE_SHA=${{ github.sha }}
@@ -51,24 +52,35 @@ jobs:
           docker tag $ECR_URI:${IMAGE_SHA} $ECR_URI:${STAGING_TAG}
           aws ecr get-login-password --region ${{ env.AWS_REGION }} | docker login --username AWS --password-stdin $ACCOUNT_ID.dkr.ecr.${{ env.AWS_REGION }}.amazonaws.com
 
-          # Push logic that is safe for IMMUTABLE tag repositories:
-          # - If IMAGE_SHA already exists, ensure STAGING_TAG exists but do not attempt to overwrite it.
-          # - If IMAGE_SHA does not exist, push IMAGE_SHA and create STAGING_TAG (unless it already exists).
+          # Safer push logic for IMMUTABLE tag repositories:
+          # 1) If IMAGE_SHA tag already exists in ECR, skip pushing it and try to ensure STAGING_TAG exists.
+          # 2) Otherwise, try to push IMAGE_SHA. If that push fails with an immutable-tag error,
+          #    attempt to push only STAGING_TAG. If STAGING_TAG also exists, skip.
           if aws ecr describe-images --repository-name ecommerce-ecr-frontend --image-ids imageTag=${IMAGE_SHA} >/dev/null 2>&1; then
             echo "Image tag ${IMAGE_SHA} already exists in ECR; ensuring staging tag ${STAGING_TAG} exists without overwriting."
             if aws ecr describe-images --repository-name ecommerce-ecr-frontend --image-ids imageTag=${STAGING_TAG} >/dev/null 2>&1; then
               echo "Staging tag ${STAGING_TAG} already exists. Skipping push."
             else
               echo "Pushing only staging tag ${STAGING_TAG}"
-              docker push $ECR_URI:${STAGING_TAG}
+              docker push $ECR_URI:${STAGING_TAG} || echo "Warning: push of ${STAGING_TAG} failed; it may already exist or another error occurred."
             fi
           else
-            echo "Pushing image ${ECR_URI}:${IMAGE_SHA} and tag ${STAGING_TAG} (if staging tag not already present)"
-            docker push $ECR_URI:${IMAGE_SHA}
-            if aws ecr describe-images --repository-name ecommerce-ecr-frontend --image-ids imageTag=${STAGING_TAG} >/dev/null 2>&1; then
-              echo "Staging tag ${STAGING_TAG} already exists after pushing IMAGE_SHA. Skipping pushing staging tag."
+            echo "Attempting to push image ${ECR_URI}:${IMAGE_SHA}"
+            if docker push $ECR_URI:${IMAGE_SHA}; then
+              echo "Pushed ${IMAGE_SHA} successfully"
+              if aws ecr describe-images --repository-name ecommerce-ecr-frontend --image-ids imageTag=${STAGING_TAG} >/dev/null 2>&1; then
+                echo "Staging tag ${STAGING_TAG} already exists after pushing IMAGE_SHA. Skipping pushing staging tag."
+              else
+                echo "Pushing staging tag ${STAGING_TAG}"
+                docker push $ECR_URI:${STAGING_TAG} || echo "Warning: failed to push ${STAGING_TAG}; continuing if tag already exists"
+              fi
             else
-              docker push $ECR_URI:${STAGING_TAG}
+              echo "Push of ${IMAGE_SHA} failed; attempting to push only ${STAGING_TAG} to ensure a usable tag is present"
+              if aws ecr describe-images --repository-name ecommerce-ecr-frontend --image-ids imageTag=${STAGING_TAG} >/dev/null 2>&1; then
+                echo "Staging tag ${STAGING_TAG} already exists. Skipping push."
+              else
+                docker push $ECR_URI:${STAGING_TAG} || echo "Warning: push of ${STAGING_TAG} failed; it may already exist or ECR rejected the tag."
+              fi
             fi
           fi
 
