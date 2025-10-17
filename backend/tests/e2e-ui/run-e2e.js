@@ -90,6 +90,14 @@ async function runE2E() {
   if (exe) launchOpts.executablePath = exe;
   const browser = await puppeteer.launch(launchOpts);
   const page = await browser.newPage();
+  // Create a CDP session and instruct the browser to ignore certificate errors at the CDP level.
+  // This can help in CI where the Chromium build enforces interstitials despite flags / puppeteer options.
+  try {
+    const client = await page.target().createCDPSession();
+    await client.send('Security.setIgnoreCertificateErrors', { ignore: true });
+  } catch (e) {
+    console.warn('Could not set CDP Security.setIgnoreCertificateErrors:', e && e.message ? e.message : e);
+  }
   page.setDefaultTimeout(20000);
   // Set a deterministic viewport for screenshots
   try { await page.setViewport({ width: 1280, height: 900 }); } catch (e) {}
