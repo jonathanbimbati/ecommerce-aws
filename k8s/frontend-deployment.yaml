@@ -5,6 +5,8 @@ metadata:
   labels:
     app: ecommerce-frontend
   annotations:
+    service.beta.kubernetes.io/aws-load-balancer-type: "nlb"
+    service.beta.kubernetes.io/aws-load-balancer-scheme: "internet-facing"
     service.beta.kubernetes.io/aws-load-balancer-additional-resource-tags: "Name=ecommerce-aws-ibm,Project=ecommerce-aws,Component=frontend"
 spec:
   ports:
