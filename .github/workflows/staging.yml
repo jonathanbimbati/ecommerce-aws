@@ -180,7 +180,7 @@ jobs:
 
       - name: Run E2E tests against staging
         env:
-          FRONTEND_URL: http://${{ env.FRONTEND_HOST }}
+          FRONTEND_URL: https://${{ env.FRONTEND_HOST }}
           PUPPETEER_SKIP_CHROMIUM_DOWNLOAD: 'true'
           PUPPETEER_EXECUTABLE_PATH: '/snap/bin/chromium'
         run: |
