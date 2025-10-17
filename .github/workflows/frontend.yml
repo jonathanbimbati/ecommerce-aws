@@ -7,6 +7,8 @@ on:
 
 env:
   AWS_REGION: ${{ secrets.AWS_REGION }}
+  # Compose an image tag unique per workflow run to avoid immutable-tag overwrite
+  IMAGE_TAG: ${{ github.sha }}-${{ github.run_id }}
 
 jobs:
   build-and-push:
@@ -46,8 +48,8 @@ jobs:
         run: |
           ACCOUNT_ID=$(aws sts get-caller-identity --query Account --output text)
           ECR_URI=${ACCOUNT_ID}.dkr.ecr.${{ env.AWS_REGION }}.amazonaws.com/ecommerce-ecr-frontend
-          # Tag only with the commit SHA to avoid immutable :latest tag conflicts
-          docker build -t $ECR_URI:${{ github.sha }} frontend/
+          # Tag with a unique value combining commit SHA and run id to avoid immutable tag conflicts
+          docker build -t $ECR_URI:${IMAGE_TAG} frontend/
 
       - name: Login to ECR
         run: |
@@ -58,7 +60,7 @@ jobs:
           ACCOUNT_ID=$(aws sts get-caller-identity --query Account --output text)
           ECR_URI=${ACCOUNT_ID}.dkr.ecr.${{ env.AWS_REGION }}.amazonaws.com/ecommerce-ecr-frontend
           # Only push the SHA-tagged image. Avoid pushing or overwriting :latest when the repo is immutable.
-          docker push $ECR_URI:${{ github.sha }}
+          docker push $ECR_URI:${IMAGE_TAG}
 
   deploy-to-k8s:
     runs-on: ubuntu-latest
@@ -121,7 +123,7 @@ jobs:
       - name: Replace deployment image with new sha tag
         run: |
           ACCOUNT_ID=$(aws sts get-caller-identity --query Account --output text)
-          ECR_URI=${ACCOUNT_ID}.dkr.ecr.${{ env.AWS_REGION }}.amazonaws.com/ecommerce-ecr-frontend:${{ github.sha }}
+          ECR_URI=${ACCOUNT_ID}.dkr.ecr.${{ env.AWS_REGION }}.amazonaws.com/ecommerce-ecr-frontend:${IMAGE_TAG}
           kubectl set image deployment/ecommerce-frontend frontend=$ECR_URI --record
           kubectl rollout status deployment/ecommerce-frontend --timeout=120s
 
