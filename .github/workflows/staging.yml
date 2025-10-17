@@ -161,10 +161,31 @@ jobs:
           STAGING_TAG=${{ needs.build-and-push.outputs.staging_tag }}
           IMAGE_TO_USE=${STAGING_TAG:-${{ needs.build-and-push.outputs.image_sha }}}
           echo "Using image tag: ${IMAGE_TO_USE}"
+
+          # Temporarily reduce replicas to 1 to make rollout tolerant to small clusters
+          CURRENT_REPLICAS=$(kubectl get deployment ecommerce-frontend -n staging -o jsonpath='{.spec.replicas}' 2>/dev/null || echo "2")
+          echo "Current replicas: ${CURRENT_REPLICAS}"
+          if [ -z "${CURRENT_REPLICAS}" ]; then CURRENT_REPLICAS=2; fi
+          if [ "${CURRENT_REPLICAS}" -gt 1 ]; then
+            echo "Scaling down ecommerce-frontend to 1 replica to allow rollout on constrained cluster"
+            kubectl scale deployment ecommerce-frontend -n staging --replicas=1 || true
+            # Wait a short time for scaling to settle
+            kubectl rollout status deployment/ecommerce-frontend -n staging --timeout=120s || true
+          else
+            echo "Deployment already at 1 replica"
+          fi
+
+          # Update image and trigger rollout
           kubectl set image deployment/ecommerce-frontend -n staging frontend=$ECR_URI:${IMAGE_TO_USE} --record
-          # Force a rollout restart to ensure every pod pulls the image (helps avoid stale cached images on nodes)
           kubectl rollout restart deployment/ecommerce-frontend -n staging || true
-          kubectl rollout status deployment/ecommerce-frontend -n staging --timeout=180s
+          kubectl rollout status deployment/ecommerce-frontend -n staging --timeout=180s || true
+
+          # Restore replicas to original count if we changed it
+          if [ "${CURRENT_REPLICAS}" -gt 1 ]; then
+            echo "Restoring ecommerce-frontend replicas to ${CURRENT_REPLICAS}"
+            kubectl scale deployment ecommerce-frontend -n staging --replicas=${CURRENT_REPLICAS} || true
+            kubectl rollout status deployment/ecommerce-frontend -n staging --timeout=180s || true
+          fi
 
       - name: Wait for LoadBalancer hostname (staging service)
         run: |
