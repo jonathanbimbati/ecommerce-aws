@@ -41,11 +41,16 @@ async function runE2E() {
     const envPath = process.env.PUPPETEER_EXECUTABLE_PATH;
     if (envPath && fs.existsSync(envPath)) return envPath;
     const candidates = [
+      // Common Linux paths
       '/snap/bin/chromium',
       '/usr/bin/chromium',
       '/usr/bin/chromium-browser',
       '/usr/bin/google-chrome-stable',
-      '/usr/bin/google-chrome'
+      '/usr/bin/google-chrome',
+      // Common Windows paths
+      'C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe',
+      'C:\\Program Files (x86)\\Google\\Chrome\\Application\\chrome.exe',
+      'C:\\Program Files\\Chromium\\Application\\chrome.exe'
     ];
     for (const p of candidates) {
       if (fs.existsSync(p)) return p;
@@ -70,7 +75,10 @@ async function runE2E() {
       '--disable-popup-blocking',
       '--disable-dev-shm-usage',
       '--no-default-browser-check',
-      '--disable-features=TranslateUI,OptimizationHints,IsolateOrigins,site-per-process',
+  '--disable-features=TranslateUI,OptimizationHints,IsolateOrigins,site-per-process',
+  // Turn off the built-in web security checks for the test browser to avoid
+  // client-side blocking of requests we rewrite during interception.
+  '--disable-web-security',
       '--disable-background-networking',
       '--disable-translate',
       '--disable-client-side-phishing-detection',
@@ -88,8 +96,34 @@ async function runE2E() {
     ]
   };
   if (exe) launchOpts.executablePath = exe;
-  const browser = await puppeteer.launch(launchOpts);
+  else {
+    // If puppeteer installed a bundled Chromium, prefer that before failing.
+    try {
+      const bundled = puppeteer.executablePath && puppeteer.executablePath();
+      if (bundled && fs.existsSync(bundled)) {
+        console.log('Using puppeteer bundled Chromium at', bundled);
+        launchOpts.executablePath = bundled;
+      }
+    } catch (e) {
+      // ignore
+    }
+  }
+  let browser;
+  try {
+    browser = await puppeteer.launch(launchOpts);
+  } catch (e) {
+    console.error('Failed to launch browser with options:', launchOpts.executablePath || '(no executablePath)');
+    console.error(e && e.message ? e.message : e);
+    throw e;
+  }
   const page = await browser.newPage();
+  // Bypass any Content-Security-Policy set by the page so our rewrites and
+  // test harness can load resources without being blocked by CSP rules.
+  try {
+    await page.setBypassCSP(true);
+  } catch (e) {
+    console.warn('Could not set bypass CSP on page:', e && e.message ? e.message : e);
+  }
   // Create a CDP session and instruct the browser to ignore certificate errors at the CDP level.
   // This can help in CI where the Chromium build enforces interstitials despite flags / puppeteer options.
   try {
@@ -116,12 +150,34 @@ async function runE2E() {
       page.on('request', async req => {
         try {
           const url = req.url();
-          // Only rewrite navigation/document requests (to avoid touching images/fonts)
-          const isNav = req.isNavigationRequest && req.isNavigationRequest();
-          if (url.startsWith('https://') && new URL(url).hostname === frontendHostname && isNav) {
+          // For any https request targeting the frontend host, perform a
+          // server-side HTTP fetch and fulfill the browser request with the
+          // fetched body. This avoids Chromium attempting a direct HTTPS
+          // connection (which times out in staging) and avoids client-side
+          // blocking like ERR_BLOCKED_BY_CLIENT.
+          if (url.startsWith('https://') && new URL(url).hostname === frontendHostname) {
             const newUrl = url.replace(/^https:/, 'http:');
-            console.log('Rewriting intercepted navigation', url, '->', newUrl);
-            return req.continue({ url: newUrl });
+            console.log('Rewriting & fulfilling intercepted request', url, '->', newUrl);
+            try {
+              // Forward headers and body from the intercepted request
+              const forwardedHeaders = req.headers ? req.headers() : {};
+              const postData = (typeof req.postData === 'function') ? req.postData() : undefined;
+              const fetchOpts = { method: req.method(), headers: forwardedHeaders, redirect: 'follow', timeout: 15000 };
+              if (postData) fetchOpts.body = postData;
+              const r = await fetch(newUrl, fetchOpts);
+              const buffer = await r.buffer();
+              const headers = {};
+              try { for (const [k, v] of r.headers.entries()) headers[k] = v; } catch (e) {}
+              // Remove hop-by-hop or encoding headers that may confuse Puppeteer
+              delete headers['transfer-encoding'];
+              delete headers['content-encoding'];
+              // Ensure we supply a valid content-type when possible
+              if (!headers['content-type'] && buffer && buffer.length > 0) headers['content-type'] = 'application/octet-stream';
+              return req.respond({ status: r.status, headers, body: buffer });
+            } catch (e) {
+              console.error('Fetch-for-intercept failed for', newUrl, e && e.message ? e.message : e);
+              try { return req.abort(); } catch (ee) { return req.continue(); }
+            }
           }
         } catch (e) {
           // fallthrough to continue below
