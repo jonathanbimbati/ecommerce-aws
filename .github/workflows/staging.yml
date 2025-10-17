@@ -180,23 +180,30 @@ jobs:
 
       - name: Run E2E tests against staging
         env:
-          FRONTEND_URL: https://${{ env.FRONTEND_HOST }}
           PUPPETEER_SKIP_CHROMIUM_DOWNLOAD: 'true'
           PUPPETEER_EXECUTABLE_PATH: '/snap/bin/chromium'
         run: |
           # Create artifacts dir for diagnostic outputs
           mkdir -p backend/tests/e2e-ui/artifacts || true
 
-          # Collect TLS diagnostic information from the LB before running E2E tests.
-          # Save headers and body (curl -vk will show TLS handshake info) and collect the cert chain via openssl.
-          echo "Collecting TLS diagnostic info for: ${{ env.FRONTEND_HOST }}"
-          # Save curl verbose output (headers and TLS handshake traces)
-          curl -vk "https://${{ env.FRONTEND_HOST }}" -D backend/tests/e2e-ui/artifacts/ssl-headers.txt -o backend/tests/e2e-ui/artifacts/ssl-body.html || true
-          # Save openssl s_client cert chain and connection diagnostics
-          echo "-----BEGIN OPENSSL S_CLIENT OUTPUT-----" > backend/tests/e2e-ui/artifacts/openssl-s_client.txt || true
-          echo "Connecting to ${{ env.FRONTEND_HOST }}:443" >> backend/tests/e2e-ui/artifacts/openssl-s_client.txt || true
-          openssl s_client -showcerts -servername "${{ env.FRONTEND_HOST }}" -connect "${{ env.FRONTEND_HOST }}:443" >> backend/tests/e2e-ui/artifacts/openssl-s_client.txt 2>&1 || true
-          echo "-----END OPENSSL S_CLIENT OUTPUT-----" >> backend/tests/e2e-ui/artifacts/openssl-s_client.txt || true
+          # Use the runtime FRONTEND_HOST set by the previous step (written to GITHUB_ENV).
+          echo "FRONTEND_HOST runtime value: '$FRONTEND_HOST'"
+          if [ -z "$FRONTEND_HOST" ]; then
+            echo "FRONTEND_HOST is empty - cannot collect TLS info" > backend/tests/e2e-ui/artifacts/tls-error.txt
+          else
+            # Collect TLS diagnostic information from the LB before running E2E tests.
+            echo "Collecting TLS diagnostic info for: $FRONTEND_HOST"
+            # Save curl verbose output (headers and TLS handshake traces)
+            curl -vk "https://$FRONTEND_HOST" -D backend/tests/e2e-ui/artifacts/ssl-headers.txt -o backend/tests/e2e-ui/artifacts/ssl-body.html || true
+            # Save openssl s_client cert chain and connection diagnostics
+            echo "-----BEGIN OPENSSL S_CLIENT OUTPUT-----" > backend/tests/e2e-ui/artifacts/openssl-s_client.txt || true
+            echo "Connecting to $FRONTEND_HOST:443" >> backend/tests/e2e-ui/artifacts/openssl-s_client.txt || true
+            openssl s_client -showcerts -servername "$FRONTEND_HOST" -connect "$FRONTEND_HOST:443" >> backend/tests/e2e-ui/artifacts/openssl-s_client.txt 2>&1 || true
+            echo "-----END OPENSSL S_CLIENT OUTPUT-----" >> backend/tests/e2e-ui/artifacts/openssl-s_client.txt || true
+          fi
+
+          # Export FRONTEND_URL at runtime so Puppeteer sees the correct host
+          export FRONTEND_URL="http://$FRONTEND_HOST"
 
           # Run the E2E tests
           cd backend/tests/e2e-ui
