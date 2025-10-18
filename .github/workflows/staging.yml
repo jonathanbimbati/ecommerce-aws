@@ -286,8 +286,75 @@ jobs:
           name: e2e-artifacts
           path: backend/tests/e2e-ui/artifacts/**
 
-      - name: Promote to production (automatic)
-        if: ${{ success() }}
+  promote-to-prod:
+    name: Promote to production (gated)
+    runs-on: ubuntu-latest
+    needs: [build-and-push, deploy-and-test-staging]
+    environment: production
+    env:
+      KUBE_CONFIG: ${{ secrets.KUBE_CONFIG }}
+      AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
+      AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+      EKS_CLUSTER_NAME: ${{ secrets.EKS_CLUSTER_NAME }}
+      AWS_REGION: ${{ secrets.AWS_REGION }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up kubectl
+        uses: azure/setup-kubectl@v3
+        with:
+          version: 'latest'
+
+      - name: Configure Kubeconfig from secret (if provided)
+        if: ${{ env.KUBE_CONFIG != '' }}
+        run: |
+          echo "${{ env.KUBE_CONFIG }}" | base64 --decode > $GITHUB_WORKSPACE/kubeconfig
+          sed -E -i 's/client.authentication\.kxs\.io/client.authentication.k8s.io/g' $GITHUB_WORKSPACE/kubeconfig || true
+          sed -E -i 's/client.authentication.k8s.io\/v[0-9a-zA-Z._-]*/client.authentication.k8s.io\/v1/g' $GITHUB_WORKSPACE/kubeconfig || true
+          awk '{ print $0;
+            if ($0 ~ /^[[:space:]]*exec:[[:space:]]*$/) {
+              m = match($0, /[^ \t]/);
+              indent = (m>1) ? substr($0,1,m-1) : "";
+              if (getline nxt) {
+                print indent "  interactiveMode: Never";
+                print nxt;
+              }
+            }
+          }' $GITHUB_WORKSPACE/kubeconfig > $GITHUB_WORKSPACE/kubeconfig.fixed && mv $GITHUB_WORKSPACE/kubeconfig.fixed $GITHUB_WORKSPACE/kubeconfig
+          echo "KUBECONFIG=$GITHUB_WORKSPACE/kubeconfig" >> $GITHUB_ENV
+
+      - name: Configure AWS credentials for kubeconfig exec-plugin
+        if: ${{ env.AWS_ACCESS_KEY_ID != '' }}
+        uses: aws-actions/configure-aws-credentials@v2
+        with:
+          aws-access-key-id: ${{ env.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ env.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Refresh kubeconfig via AWS (ensure exec-plugin uses job credentials)
+        if: ${{ env.AWS_ACCESS_KEY_ID != '' && env.EKS_CLUSTER_NAME != '' }}
+        run: |
+          echo "Refreshing kubeconfig using AWS CLI so exec-plugin picks up credentials"
+          aws sts get-caller-identity || true
+          aws eks update-kubeconfig --name "${{ env.EKS_CLUSTER_NAME }}" --region ${{ env.AWS_REGION }} --kubeconfig $GITHUB_WORKSPACE/kubeconfig
+          echo "KUBECONFIG=$GITHUB_WORKSPACE/kubeconfig" >> $GITHUB_ENV
+
+      - name: Configure Kubeconfig via AWS (if KUBE_CONFIG not provided)
+        if: ${{ env.KUBE_CONFIG == '' && env.AWS_ACCESS_KEY_ID != '' }}
+        uses: aws-actions/configure-aws-credentials@v2
+        with:
+          aws-access-key-id: ${{ env.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ env.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Update kubeconfig using eksctl (when AWS creds available)
+        if: ${{ env.KUBE_CONFIG == '' && env.AWS_ACCESS_KEY_ID != '' }}
+        run: |
+          if [ -z "${{ env.EKS_CLUSTER_NAME }}" ]; then echo "EKS_CLUSTER_NAME secret is required when KUBE_CONFIG is not set" && exit 1; fi
+          aws eks update-kubeconfig --name "${{ env.EKS_CLUSTER_NAME }}" --region ${{ env.AWS_REGION }}
+
+      - name: Set production image and rollout
         run: |
           echo "Promotion: updating production deployment to use staging image"
           ACCOUNT_ID=$(aws sts get-caller-identity --query Account --output text)
