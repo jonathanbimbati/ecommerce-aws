@@ -162,8 +162,8 @@ jobs:
       - name: Apply frontend k8s manifests to staging
         run: |
           kubectl apply -f k8s/frontend-deployment.yaml -n staging || true
-          # Apply backend service alias so legacy hostname 'backend' resolves to ecommerce-backend
-          kubectl apply -f k8s/backend-service-alias.yaml -n staging || true
+          # Apply backend ExternalName service so 'backend' DNS resolves to API Gateway host
+          kubectl apply -f k8s/backend-deployment.yaml -n staging || true
 
       - name: Replace deployment image with staging sha tag
         run: |
@@ -210,6 +210,38 @@ jobs:
             echo "Waiting for LB host... ($i)"; sleep 15
           done
           if [ -z "$HOST" ]; then echo "LoadBalancer hostname not available"; exit 1; fi
+
+      - name: Probe backend API (API Gateway integration)
+        run: |
+          mkdir -p backend/tests/e2e-ui/artifacts || true
+          echo "Reading API_URL from frontend deployment env..."
+          API_URL=$(kubectl get deploy ecommerce-frontend -n staging -o jsonpath='{.spec.template.spec.containers[?(@.name=="frontend")].env[?(@.name=="API_URL")].value}')
+          echo "API_URL: $API_URL" | tee backend/tests/e2e-ui/artifacts/backend-probe-url.txt
+          if [ -z "$API_URL" ]; then
+            echo "API_URL vazio no deployment; não é possível sondar backend" | tee backend/tests/e2e-ui/artifacts/backend-probe-error.txt
+            exit 1
+          fi
+
+          PROBE_URL="$API_URL/api/products"
+          echo "Probing: $PROBE_URL"
+          set -o pipefail
+          curl -sv --connect-timeout 5 --max-time 15 "$PROBE_URL" \
+            -o backend/tests/e2e-ui/artifacts/backend-probe-body.json \
+            -D backend/tests/e2e-ui/artifacts/backend-probe-headers.txt \
+            2> backend/tests/e2e-ui/artifacts/backend-probe-curl.txt || PROBE_RC=$?
+
+          # Extract HTTP status code
+          STATUS=$(awk 'toupper($1) ~ /^HTTP\// {code=$2} END{print code+0}' backend/tests/e2e-ui/artifacts/backend-probe-headers.txt 2>/dev/null || echo 0)
+          echo "HTTP STATUS: $STATUS" | tee -a backend/tests/e2e-ui/artifacts/backend-probe-headers.txt
+          if [ -n "$PROBE_RC" ]; then
+            echo "Curl retornou código $PROBE_RC" | tee backend/tests/e2e-ui/artifacts/backend-probe-error.txt
+            exit 1
+          fi
+          if [ "$STATUS" -lt 200 ] || [ "$STATUS" -ge 400 ]; then
+            echo "Backend probe falhou com status $STATUS" | tee backend/tests/e2e-ui/artifacts/backend-probe-error.txt
+            exit 1
+          fi
+          echo "Backend OK (status $STATUS)"
 
       - name: Run E2E tests against staging
         run: |
@@ -285,6 +317,59 @@ jobs:
         with:
           name: e2e-artifacts
           path: backend/tests/e2e-ui/artifacts/**
+
+      - name: Collect K8s diagnostics on failure (staging)
+        if: ${{ failure() }}
+        run: |
+          set -e
+          NS=staging
+          DIAG_DIR=k8s-diag
+          mkdir -p "$DIAG_DIR"
+
+          echo "== Get all resources =="
+          kubectl get all -n "$NS" -o wide > "$DIAG_DIR/get-all.txt" 2>&1 || true
+
+          echo "== Service and Endpoints =="
+          kubectl describe svc ecommerce-frontend -n "$NS" > "$DIAG_DIR/svc-ecommerce-frontend.txt" 2>&1 || true
+          kubectl get endpoints ecommerce-frontend -n "$NS" -o wide > "$DIAG_DIR/endpoints-ecommerce-frontend.txt" 2>&1 || true
+          # Backend alias (se existir)
+          kubectl get svc backend -n "$NS" >/dev/null 2>&1 && kubectl describe svc backend -n "$NS" > "$DIAG_DIR/svc-backend-alias.txt" 2>&1 || true
+
+          echo "== Deployment, ReplicaSets e Rollout =="
+          kubectl describe deploy ecommerce-frontend -n "$NS" > "$DIAG_DIR/describe-deploy-ecommerce-frontend.txt" 2>&1 || true
+          kubectl rollout history deployment/ecommerce-frontend -n "$NS" > "$DIAG_DIR/rollout-history-ecommerce-frontend.txt" 2>&1 || true
+          kubectl get rs -n "$NS" -l app=ecommerce-frontend -o name | while read RS; do
+            [ -z "$RS" ] && continue; kubectl describe "$RS" -n "$NS" > "$DIAG_DIR/describe-${RS//\//-}.txt" 2>&1 || true
+          done
+
+          echo "== Pods (describe + logs) =="
+          kubectl get pods -n "$NS" -l app=ecommerce-frontend -o name | tee "$DIAG_DIR/pod-list.txt"
+          kubectl get pods -n "$NS" -l app=ecommerce-frontend -o name | while read P; do
+            [ -z "$P" ] && continue;
+            SAFE=${P//\//-}
+            kubectl describe "$P" -n "$NS" > "$DIAG_DIR/describe-${SAFE}.txt" 2>&1 || true
+            kubectl logs "$P" -n "$NS" --all-containers=true --tail=2000 > "$DIAG_DIR/logs-${SAFE}.txt" 2>&1 || true
+          done
+
+          echo "== Events (ordenado) =="
+          kubectl get events -n "$NS" --sort-by=.lastTimestamp > "$DIAG_DIR/events.txt" 2>&1 || kubectl get events -n "$NS" > "$DIAG_DIR/events.txt" 2>&1 || true
+
+          echo "== Nodes relacionados e CNI =="
+          # Descrever nós onde os pods do frontend estão agendados
+          for NODE in $(kubectl get pods -n "$NS" -l app=ecommerce-frontend -o jsonpath='{.items[*].spec.nodeName}'); do
+            [ -z "$NODE" ] && continue; kubectl describe node "$NODE" > "$DIAG_DIR/describe-node-${NODE}.txt" 2>&1 || true
+          done
+          # Logs dos pods aws-node (CNI) em kube-system
+          kubectl get pods -n kube-system -l k8s-app=aws-node -o name | while read CNI; do
+            [ -z "$CNI" ] && continue; SAFE=${CNI//\//-}; kubectl logs "$CNI" -n kube-system --tail=2000 > "$DIAG_DIR/kube-system-${SAFE}-logs.txt" 2>&1 || true
+          done
+
+      - name: Upload K8s diagnostics (staging)
+        if: ${{ failure() }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: k8s-staging-diagnostics
+          path: k8s-diag/**
 
   promote-to-prod:
     name: Promote to production (gated)

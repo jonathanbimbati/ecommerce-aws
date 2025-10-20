@@ -1,21 +1,21 @@
 AWSTemplateFormatVersion: '2010-09-09'
-Description: Create ECR repositories for the project with immutability and a lifecycle policy.
+Description: Create ECR repositories (immutable + lifecycle) using the fixed names used by CI/CD.
 
 Parameters:
   BackendRepositoryName:
     Type: String
     Default: ecommerce-ecr-backend
-    Description: Name of the backend ECR repository
+    Description: Name of the backend ECR repository (keep default to match CI/CD)
   FrontendRepositoryName:
     Type: String
     Default: ecommerce-ecr-frontend
-    Description: Name of the frontend ECR repository
+    Description: Name of the frontend ECR repository (keep default to match CI/CD)
 
 Resources:
   ECRRepositoryBackend:
     Type: AWS::ECR::Repository
     Properties:
-      RepositoryName: !Sub "${AWS::StackName}-backend"
+      RepositoryName: !Ref BackendRepositoryName
       ImageTagMutability: IMMUTABLE
       LifecyclePolicy:
         LifecyclePolicyText: |
@@ -33,7 +33,7 @@ Resources:
   ECRRepositoryFrontend:
     Type: AWS::ECR::Repository
     Properties:
-      RepositoryName: !Sub "${AWS::StackName}-frontend"
+      RepositoryName: !Ref FrontendRepositoryName
       ImageTagMutability: IMMUTABLE
       LifecyclePolicy:
         LifecyclePolicyText: |

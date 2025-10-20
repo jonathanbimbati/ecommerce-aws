@@ -5,6 +5,13 @@ Parameters:
   TopicName:
     Type: String
     Default: ecommerce-scale-notifications
+  NotificationEmail:
+    Type: String
+    Default: jonathanbimbati@gmail.com
+    Description: (Opcional) E-mail para assinar o tópico SNS. Deixe vazio para não criar assinatura.
+
+Conditions:
+  UseEmailSubscription: !Not [ !Equals [ !Ref NotificationEmail, '' ] ]
 
 Resources:
   ScaleTopic:
@@ -12,14 +19,13 @@ Resources:
     Properties:
       TopicName: !Ref TopicName
 
-  ScaleTopicPolicy:
-    Type: AWS::SNS::TopicPolicy
+  EmailSubscription:
+    Type: AWS::SNS::Subscription
+    Condition: UseEmailSubscription
     Properties:
-      Topics:
-        - !Ref ScaleTopic
-      PolicyDocument:
-        Version: '2012-10-17'
-        Statement: []
+      Protocol: email
+      Endpoint: !Ref NotificationEmail
+      TopicArn: !Ref ScaleTopic
 
 Outputs:
   ScaleTopicArn:

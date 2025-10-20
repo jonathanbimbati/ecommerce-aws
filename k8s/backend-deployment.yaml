@@ -53,30 +53,15 @@ spec:
             httpGet:
               path: /api/products
               port: 3000
-            initialDelaySeconds: 5
-            periodSeconds: 10
-          livenessProbe:
-            httpGet:
-              path: /api/health
-              port: 3000
-            initialDelaySeconds: 20
-            periodSeconds: 20
-          resources:
-            limits:
-              cpu: "500m"
-              memory: "512Mi"
-            requests:
-              cpu: "100m"
-              memory: "128Mi"
-      automountServiceAccountToken: false
-      volumes:
-        - name: aws-iam-token
-          projected:
-            sources:
-              - serviceAccountToken:
-                  path: token
-                  audience: sts.amazonaws.com
-                  expirationSeconds: 3600
-      # mount projected token into the container
-      # (the container will find it at the path set in AWS_WEB_IDENTITY_TOKEN_FILE)
-      # mount handled by Kubernetes automatically into /var/run/secrets/eks.amazonaws.com/serviceaccount
+            apiVersion: v1
+            kind: Service
+            metadata:
+              name: backend
+              labels:
+                app: backend
+              annotations:
+                # Alias para compatibilidade de DNS internas (ex: http://backend) apontando para o API Gateway via ExternalName.
+                # Ajuste o host abaixo para o endpoint real do API Gateway.
+            spec:
+              type: ExternalName
+              externalName: w3rtebdo58.execute-api.us-east-1.amazonaws.com
