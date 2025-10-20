@@ -5,6 +5,9 @@ Parameters:
   BackupPlanName:
     Type: String
     Default: ecommerce-backup-plan
+  DynamoTableArn:
+    Type: String
+    Description: ARN da tabela DynamoDB a ser protegida (ex. arn:aws:dynamodb:us-east-1:123456789012:table/ecommerce-aws-Products)
 
 Resources:
   BackupVault:
@@ -23,3 +26,26 @@ Resources:
             ScheduleExpression: cron(0 5 ? * * *)
             StartWindowMinutes: 60
             CompletionWindowMinutes: 180
+
+  BackupRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: backup.amazonaws.com
+            Action: sts:AssumeRole
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/service-role/AWSBackupServiceRolePolicyForBackup
+
+  BackupSelection:
+    Type: AWS::Backup::BackupSelection
+    Properties:
+      BackupPlanId: !Ref BackupPlan
+      BackupSelection:
+        SelectionName: dynamodb-selection
+        IamRoleArn: !GetAtt BackupRole.Arn
+        Resources:
+          - !Ref DynamoTableArn

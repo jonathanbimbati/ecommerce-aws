@@ -12,9 +12,14 @@ Parameters:
     Default: 'false'
     AllowedValues: ['true','false']
     Description: If 'true' the template creates a Cognito UserPool + Client and configures a JWT authorizer for the API
+  AlarmTopicArn:
+    Type: String
+    Default: ''
+    Description: (Opcional) SNS Topic ARN para receber alarmes (ex. do template sns-scale-events)
 
 Conditions:
   UseCognito: !Equals [ !Ref CognitoEnabled, 'true' ]
+  HasTopic: !Not [ !Equals [ !Ref AlarmTopicArn, '' ] ]
 
 Resources:
   LambdaExecutionRole:
@@ -177,6 +182,53 @@ Resources:
       ApiId: !Ref Api
       StageName: prod
       AutoDeploy: true
+
+  # CloudWatch Alarms (opcionais): 5XXError e Latency (p99) na Stage "prod"
+  Api5XXAlarm:
+    Type: AWS::CloudWatch::Alarm
+    Properties:
+      AlarmDescription: 5XX errors >= 5 em 5 minutos (HTTP API)
+      Namespace: AWS/ApiGateway
+      MetricName: 5XXError
+      Dimensions:
+        - Name: ApiId
+          Value: !Ref Api
+        - Name: Stage
+          Value: prod
+      Statistic: Sum
+      Period: 60
+      EvaluationPeriods: 5
+      DatapointsToAlarm: 3
+      Threshold: 5
+      ComparisonOperator: GreaterThanOrEqualToThreshold
+      TreatMissingData: notBreaching
+      AlarmActions: !If
+        - HasTopic
+        - [ !Ref AlarmTopicArn ]
+        - []
+
+  ApiLatencyP99Alarm:
+    Type: AWS::CloudWatch::Alarm
+    Properties:
+      AlarmDescription: Latency p99 > 2s em 5 minutos (HTTP API)
+      Namespace: AWS/ApiGateway
+      MetricName: Latency
+      Dimensions:
+        - Name: ApiId
+          Value: !Ref Api
+        - Name: Stage
+          Value: prod
+      ExtendedStatistic: p99
+      Period: 60
+      EvaluationPeriods: 5
+      DatapointsToAlarm: 3
+      Threshold: 2000
+      ComparisonOperator: GreaterThanThreshold
+      TreatMissingData: notBreaching
+      AlarmActions: !If
+        - HasTopic
+        - [ !Ref AlarmTopicArn ]
+        - []
 
   LambdaPermissionForApi:
     Type: AWS::Lambda::Permission

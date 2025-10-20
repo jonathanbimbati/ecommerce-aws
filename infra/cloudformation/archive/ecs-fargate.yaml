@@ -1,0 +1,51 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: [Archived] Skeleton template for ECS Fargate Service with ALB integration. Not used by current flow.
+
+Parameters:
+  ClusterName:
+    Type: String
+    Default: ecommerce-ecs-cluster
+  ServiceName:
+    Type: String
+    Default: ecommerce-backend-service
+  ContainerImage:
+    Type: String
+    Description: ECR image uri (including digest or tag)
+
+Resources:
+  ECSCluster:
+    Type: AWS::ECS::Cluster
+    Properties:
+      ClusterName: !Ref ClusterName
+
+  TaskDefinition:
+    Type: AWS::ECS::TaskDefinition
+    Properties:
+      Family: !Ref ServiceName
+      Cpu: '256'
+      Memory: '512'
+      NetworkMode: awsvpc
+      RequiresCompatibilities: [FARGATE]
+      ContainerDefinitions:
+        - Name: backend
+          Image: !Ref ContainerImage
+          PortMappings:
+            - ContainerPort: 3000
+              Protocol: tcp
+          Environment:
+            - Name: DYNAMODB_TABLE
+              Value: ecommerce-aws-Products
+
+  Service:
+    Type: AWS::ECS::Service
+    Properties:
+      Cluster: !Ref ECSCluster
+      ServiceName: !Ref ServiceName
+      TaskDefinition: !Ref TaskDefinition
+      LaunchType: FARGATE
+      DesiredCount: 2
+
+Outputs:
+  ECSClusterName:
+    Value: !Ref ECSCluster
+    Description: Name of created ECS cluster

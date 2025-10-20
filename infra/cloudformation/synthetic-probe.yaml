@@ -1,0 +1,122 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: Synthetic HTTP probe for NLB/URL with SNS notifications via CloudWatch Alarm.
+
+Parameters:
+  ProbeUrl:
+    Type: String
+    Description: URL a ser verificada (ex. http://<nlb-hostname>)
+  TopicArn:
+    Type: String
+    Description: SNS Topic ARN para enviar alertas
+  ScheduleExpression:
+    Type: String
+    Default: rate(5 minutes)
+    Description: Frequência da verificação (EventBridge)
+  TimeoutMs:
+    Type: Number
+    Default: 5000
+    Description: Timeout de conexão/leitura em milissegundos
+
+Resources:
+  ProbeFunctionRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: lambda.amazonaws.com
+            Action: sts:AssumeRole
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole
+
+  ProbeFunction:
+    Type: AWS::Lambda::Function
+    Properties:
+      Runtime: nodejs18.x
+      Handler: index.handler
+      Role: !GetAtt ProbeFunctionRole.Arn
+      Timeout: 10
+      Environment:
+        Variables:
+          PROBE_URL: !Ref ProbeUrl
+          TIMEOUT_MS: !Ref TimeoutMs
+      Code:
+        ZipFile: |
+          const https = require('https');
+          const http = require('http');
+          const { URL } = require('url');
+          const PROBE_URL = process.env.PROBE_URL;
+          const TIMEOUT_MS = parseInt(process.env.TIMEOUT_MS || '5000', 10);
+          exports.handler = async () => {
+            if (!PROBE_URL) throw new Error('PROBE_URL não definido');
+            const u = new URL(PROBE_URL);
+            const mod = u.protocol === 'https:' ? https : http;
+            const start = Date.now();
+            const res = await new Promise((resolve, reject) => {
+              const req = mod.request({ hostname: u.hostname, port: u.port || (u.protocol==='https:'?443:80), path: u.pathname + (u.search||''), method: 'GET', timeout: TIMEOUT_MS }, (r) => {
+                // Drain data to allow socket reuse
+                r.on('data', ()=>{});
+                r.on('end', ()=> resolve({ statusCode: r.statusCode }));
+              });
+              req.on('timeout', () => { req.destroy(new Error('timeout')); });
+              req.on('error', reject);
+              req.end();
+            });
+            const latency = Date.now() - start;
+            const ok = res.statusCode >= 200 && res.statusCode < 400;
+            console.log(JSON.stringify({ statusCode: res.statusCode, latency }));
+            // Export custom metrics via CloudWatch Logs Metric Filter (configured below)
+            if (!ok) throw new Error(`status ${res.statusCode}`);
+            return { statusCode: res.statusCode, latency };
+          };
+
+  Rule:
+    Type: AWS::Events::Rule
+    Properties:
+      ScheduleExpression: !Ref ScheduleExpression
+      Targets:
+        - Arn: !GetAtt ProbeFunction.Arn
+          Id: ProbeFunctionTarget
+
+  PermissionForEventsToInvokeLambda:
+    Type: AWS::Lambda::Permission
+    Properties:
+      FunctionName: !Ref ProbeFunction
+      Action: lambda:InvokeFunction
+      Principal: events.amazonaws.com
+      SourceArn: !GetAtt Rule.Arn
+
+  LogGroup:
+    Type: AWS::Logs::LogGroup
+    Properties:
+      LogGroupName: !Sub "/aws/lambda/${ProbeFunction}"
+      RetentionInDays: 14
+
+  # Alarme minimalista baseado na métrica nativa da Lambda (Errors)
+  AlarmProbeErrors:
+    Type: AWS::CloudWatch::Alarm
+    Properties:
+      AlarmDescription: "Synthetic probe: Lambda Errors >= 1"
+      Namespace: AWS/Lambda
+      MetricName: Errors
+      Dimensions:
+        - Name: FunctionName
+          Value: !Ref ProbeFunction
+      Statistic: Sum
+      Period: 60
+      EvaluationPeriods: 1
+      DatapointsToAlarm: 1
+      Threshold: 1
+      ComparisonOperator: GreaterThanOrEqualToThreshold
+      TreatMissingData: notBreaching
+      AlarmActions: [ !Ref TopicArn ]
+
+Outputs:
+  ProbeFunctionName:
+    Value: !Ref ProbeFunction
+    Description: Nome da função Lambda do probe
+  RuleArn:
+    Value: !GetAtt Rule.Arn
+    Description: ARN da regra de agendamento
