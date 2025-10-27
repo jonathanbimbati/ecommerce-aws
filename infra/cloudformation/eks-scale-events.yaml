@@ -1,0 +1,48 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: EventBridge rules to forward EKS node group Auto Scaling events to an SNS topic.
+
+Parameters:
+  TopicArn:
+    Type: String
+    Description: SNS Topic ARN to receive scaling notifications
+  AutoScalingGroupNames:
+    Type: List<String>
+    Description: List of Auto Scaling Group names backing EKS node groups
+
+Resources:
+  EKSScaleEventsRule:
+    Type: AWS::Events::Rule
+    Properties:
+      Name: eks-nodegroup-scale-events
+      Description: Forward EKS node group EC2 Auto Scaling launch/terminate events to SNS
+      EventPattern:
+        source:
+          - aws.autoscaling
+        detail-type:
+          - EC2 Instance Launch Successful
+          - EC2 Instance Terminate Successful
+        detail:
+          AutoScalingGroupName: !Ref AutoScalingGroupNames
+      Targets:
+        - Arn: !Ref TopicArn
+          Id: SnsTarget
+
+  AllowEventsToPublishToSNS:
+    Type: AWS::SNS::TopicPolicy
+    Properties:
+      Topics:
+        - !Ref TopicArn
+      PolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Sid: AllowEventBridgePublish
+            Effect: Allow
+            Principal:
+              Service: events.amazonaws.com
+            Action: sns:Publish
+            Resource: !Ref TopicArn
+
+Outputs:
+  RuleName:
+    Description: EventBridge rule name
+    Value: !Ref EKSScaleEventsRule

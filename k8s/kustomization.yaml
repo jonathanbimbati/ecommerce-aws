@@ -6,6 +6,7 @@ resources:
   - frontend-deployment.yaml
   - service-account.yaml
   - secret-jwt.yaml
+  - frontend-hpa.yaml
 
 images:
   - name: ecommerce-ecr-backend
