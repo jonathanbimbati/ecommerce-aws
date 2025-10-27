@@ -4,16 +4,13 @@ Description: CloudTrail that records management events and ECR data events into 
 Parameters:
   TrailName:
     Type: String
-    Default: ecommerce-aws-cloudtrail
+    Default: ecommerce-aws-cloudtrail-ecr
   # No S3BucketName parameter: the template creates a dedicated bucket for CloudTrail logs.
 
 Resources:
   CloudTrailBucket:
     Type: AWS::S3::Bucket
     Properties:
-      # If S3BucketName parameter is provided, CloudFormation does not allow conditional BucketName property for S3::Bucket.
-      # We'll create a new bucket always and the parameter can be used externally if needed.
-      BucketName: !Sub "ecommerce-aws-cloudtrail-logs-${AWS::AccountId}-${AWS::Region}"
       VersioningConfiguration:
         Status: Enabled
 
@@ -24,19 +21,21 @@ Resources:
       PolicyDocument:
         Version: '2012-10-17'
         Statement:
+          - Sid: AllowCloudTrailGetBucketAcl
+            Effect: Allow
+            Principal:
+              Service: cloudtrail.amazonaws.com
+            Action: s3:GetBucketAcl
+            Resource: !Sub 'arn:aws:s3:::${CloudTrailBucket}'
           - Sid: AllowCloudTrailPutObject
             Effect: Allow
             Principal:
               Service: cloudtrail.amazonaws.com
             Action: s3:PutObject
-            Resource:
-              Fn::Join:
-                - ''
-                - - 'arn:aws:s3:::'
-                  - !Ref CloudTrailBucket
-                  - '/AWSLogs/'
-                  - !Ref 'AWS::AccountId'
-                  - '/*'
+            Resource: !Sub 'arn:aws:s3:::${CloudTrailBucket}/AWSLogs/${AWS::AccountId}/*'
+            Condition:
+              StringEquals:
+                s3:x-amz-acl: bucket-owner-full-control
 
   CloudTrail:
     Type: AWS::CloudTrail::Trail
@@ -50,12 +49,6 @@ Resources:
       EventSelectors:
         - ReadWriteType: All
           IncludeManagementEvents: true
-        - ReadWriteType: All
-          IncludeManagementEvents: false
-          DataResources:
-            - Type: AWS::ECR::Repository
-              Values:
-                - !Sub "arn:aws:ecr:${AWS::Region}:${AWS::AccountId}:repository/*"
 
 Outputs:
   CloudTrailBucketName:
