@@ -165,6 +165,10 @@ jobs:
           # Apply backend ExternalName service so 'backend' DNS resolves to API Gateway host
           kubectl apply -f k8s/backend-deployment.yaml -n staging || true
 
+      - name: Apply HPA (frontend) to staging
+        run: |
+          kubectl apply -f k8s/frontend-hpa.yaml -n staging || true
+
       - name: Replace deployment image with staging sha tag
         run: |
           ACCOUNT_ID=$(aws sts get-caller-identity --query Account --output text)
