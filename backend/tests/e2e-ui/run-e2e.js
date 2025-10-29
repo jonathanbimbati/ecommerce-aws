@@ -314,6 +314,45 @@ async function runE2E() {
     }, nm);
   }
 
+  // Try to find the product across pagination by iterating pages (reset to page 1, then go next until end)
+  async function findProductAcrossPages(nm, maxMs = 60000) {
+    const start = Date.now();
+    // If pagination not present, a simple check suffices
+    const hasPagination = await page.$('nav .pagination');
+    async function checkHere() { return await isProductVisible(nm); }
+    if (!hasPagination) return await checkHere();
+    // Go to page 1 first
+    try {
+      await page.evaluate(() => {
+        const pager = document.querySelector('nav .pagination');
+        if (!pager) return;
+        const firstBtn = pager.querySelector('li.page-item:nth-child(2) a.page-link'); // index 2 is page "1" when "Anterior" is first
+        if (firstBtn) firstBtn.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+      });
+      await page.waitForTimeout(200);
+    } catch (e) { /* ignore */ }
+    // Scan pages until found or no next
+    while (Date.now() - start < maxMs) {
+      if (await checkHere()) return true;
+      const moved = await page.evaluate(() => {
+        const pager = document.querySelector('nav .pagination');
+        if (!pager) return false;
+        const nextLi = pager.querySelector('li.page-item:last-child');
+        if (!nextLi || nextLi.classList.contains('disabled')) return false;
+        const nextLink = nextLi.querySelector('a.page-link');
+        if (nextLink) {
+          nextLink.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+          return true;
+        }
+        return false;
+      });
+      if (!moved) break;
+      await page.waitForTimeout(250);
+    }
+    // Final check on the last page
+    return await checkHere();
+  }
+
   // Create a new product using modal if available, else legacy side form
   const name = 'E2E Product ' + Date.now();
   let usedModal = false;
@@ -339,9 +378,29 @@ async function runE2E() {
     await page.click('button.btn-success');
   }
 
+  // Wait for product creation network responses to settle: POST /api/products then a list refresh GET
+  try {
+    await page.waitForResponse(res => {
+      try { return res.url().includes('/api/products') && res.request().method() === 'POST' && [200,201].includes(res.status()); } catch (e) { return false; }
+    }, { timeout: 30000 });
+  } catch (e) {
+    console.warn('Did not observe POST /api/products response in time');
+  }
+  try {
+    await page.waitForResponse(res => {
+      try { return res.url().includes('/api/products') && res.request().method() === 'GET' && res.status() === 200; } catch (e) { return false; }
+    }, { timeout: 30000 });
+  } catch (e) {
+    // Not critical; continue to UI verification
+  }
+
+  // If a modal was used, wait for it to close to avoid overlay blocking interactions
+  try { await page.waitForSelector('.modal.show', { hidden: true, timeout: 5000 }); } catch (e) { /* ignore */ }
+
   console.log('Waiting for product to appear in the UI...');
   try {
-    await page.waitForFunction(isProductVisible, { timeout: 20000 }, name);
+    const found = await findProductAcrossPages(name, 60000);
+    if (!found) throw new Error('Product not visible across pages');
   } catch (err) {
     console.error('Waiting for created product failed:', err);
     await saveArtifacts('wait-for-product-failure');
