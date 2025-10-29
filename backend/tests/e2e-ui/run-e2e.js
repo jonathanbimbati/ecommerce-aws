@@ -451,21 +451,21 @@ async function runE2E() {
   // Click Edit on the product (table row or card)
   let editedViaTable = false;
   try {
-    const rows = await page.$$('table tbody tr');
-    for (const row of rows) {
-      const text = await row.$eval('td', td => td.innerText);
-      if (text.includes(name)) {
-        const editBtn = await row.$('button.btn-primary');
-        if (!editBtn) continue;
-        try {
-          await editBtn.evaluate(el => { el.scrollIntoView({ block: 'center', inline: 'center' }); el.click(); });
-        } catch (e) {
-          try { await editBtn.click({ delay: 50 }); } catch (ee) { /* will try cards flow */ }
+    editedViaTable = await page.evaluate((nm) => {
+      const rows = Array.from(document.querySelectorAll('table tbody tr'));
+      for (const row of rows) {
+        const firstCell = row.querySelector('td');
+        if (firstCell && firstCell.innerText && firstCell.innerText.includes(nm)) {
+          const btn = row.querySelector('button.btn-primary');
+          if (btn) {
+            btn.scrollIntoView({ block: 'center', inline: 'center' });
+            (btn).click();
+            return true;
+          }
         }
-        editedViaTable = true;
-        break;
       }
-    }
+      return false;
+    }, name);
   } catch (e) { /* ignore */ }
 
   if (!editedViaTable) {
@@ -480,15 +480,24 @@ async function runE2E() {
       await saveArtifacts('no-product-card');
       throw new Error('Created product card not found');
     }
-    const editBtn = await targetCard.$('button.btn-primary');
-    if (!editBtn) {
+    const clicked = await page.evaluate((nm) => {
+      const cards = Array.from(document.querySelectorAll('.card'));
+      for (const card of cards) {
+        const title = card.querySelector('.card-title');
+        if (title && title.textContent && title.textContent.includes(nm)) {
+          const btn = card.querySelector('button.btn-primary');
+          if (btn) {
+            btn.scrollIntoView({ block: 'center', inline: 'center' });
+            (btn).click();
+            return true;
+          }
+        }
+      }
+      return false;
+    }, name);
+    if (!clicked) {
       await saveArtifacts('edit-button-not-found');
       throw new Error('Edit button not found in product card');
-    }
-    try {
-      await editBtn.evaluate(el => { el.scrollIntoView({ block: 'center', inline: 'center' }); el.click(); });
-    } catch (e) {
-      try { await editBtn.click({ delay: 50 }); } catch (ee) {}
     }
     // Wait for form fields to be available (modal or not), avoid flakiness on animations
     try {
@@ -533,39 +542,28 @@ async function runE2E() {
   // Remove either from table row or card
   let removed = false;
   try {
-    const rows2 = await page.$$('table tbody tr');
-    for (const row of rows2) {
-      const text = await row.$eval('td', td => td.innerText);
-      if (text.includes(name)) {
-        const delBtn = await row.$('button.btn-danger');
-        if (!delBtn) continue;
-        try {
-          await delBtn.evaluate(el => { el.scrollIntoView({ block: 'center', inline: 'center' }); el.click(); });
-        } catch (e) {
-          try { await delBtn.click({ delay: 50 }); } catch (ee) {}
+    removed = await page.evaluate((nm) => {
+      // Try table first
+      const rows = Array.from(document.querySelectorAll('table tbody tr'));
+      for (const row of rows) {
+        const firstCell = row.querySelector('td');
+        if (firstCell && firstCell.innerText && firstCell.innerText.includes(nm)) {
+          const btn = row.querySelector('button.btn-danger');
+          if (btn) { btn.scrollIntoView({ block: 'center', inline: 'center' }); (btn).click(); return true; }
         }
-        removed = true;
-        break;
       }
-    }
+      // Then cards
+      const cards = Array.from(document.querySelectorAll('.card'));
+      for (const card of cards) {
+        const title = card.querySelector('.card-title');
+        if (title && title.textContent && title.textContent.includes(nm)) {
+          const btn = card.querySelector('button.btn-danger');
+          if (btn) { btn.scrollIntoView({ block: 'center', inline: 'center' }); (btn).click(); return true; }
+        }
+      }
+      return false;
+    }, name);
   } catch (e) { /* ignore */ }
-  if (!removed) {
-    const cards2 = await page.$$('.card');
-    for (const card of cards2) {
-      const title = await card.$eval('.card-title', el => el && el.textContent ? el.textContent : '');
-      if (title && title.includes(name)) {
-        const delBtn = await card.$('button.btn-danger');
-        if (!delBtn) continue;
-        try {
-          await delBtn.evaluate(el => { el.scrollIntoView({ block: 'center', inline: 'center' }); el.click(); });
-        } catch (e) {
-          try { await delBtn.click({ delay: 50 }); } catch (ee) {}
-        }
-        removed = true;
-        break;
-      }
-    }
-  }
   if (!removed) {
     await saveArtifacts('remove-not-found');
     throw new Error('Could not find product to remove');
