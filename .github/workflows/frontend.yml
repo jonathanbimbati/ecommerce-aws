@@ -205,16 +205,29 @@ jobs:
           aws eks update-kubeconfig --name "${{ env.EKS_CLUSTER_NAME }}" --region ${{ env.AWS_REGION }}
           echo "KUBECONFIG=$HOME/.kube/config" >> $GITHUB_ENV
 
-      - name: Resolve frontend LoadBalancer hostname and export FRONTEND_URL
+      - name: Resolve frontend URL (prefer fixed ALB; fallback to Service LB)
         run: |
+          set -e
+          # 1) Prefer an explicit ALB hostname provided via repository secret FRONTEND_ALB_HOSTNAME
+          if [ -n "${{ secrets.FRONTEND_ALB_HOSTNAME }}" ]; then
+            echo "Using FRONTEND_ALB_HOSTNAME secret"
+            echo "FRONTEND_URL=http://${{ secrets.FRONTEND_ALB_HOSTNAME }}" >> $GITHUB_ENV
+            exit 0
+          fi
+
+          # 2) Fallback: try to resolve a LoadBalancer Service in default or staging namespaces
+          echo "No FRONTEND_ALB_HOSTNAME secret set; attempting to resolve Service LoadBalancer hostname"
           for i in {1..20}; do
             HOST=$(kubectl get svc ecommerce-frontend -o jsonpath='{.status.loadBalancer.ingress[0].hostname}' 2>/dev/null || true)
+            if [ -z "$HOST" ]; then
+              HOST=$(kubectl get svc ecommerce-frontend -n staging -o jsonpath='{.status.loadBalancer.ingress[0].hostname}' 2>/dev/null || true)
+            fi
             if [ -n "$HOST" ]; then
-              echo "Found LB host: $HOST"; echo "FRONTEND_URL=http://$HOST" >> $GITHUB_ENV; break
+              echo "Found LB host: $HOST"; echo "FRONTEND_URL=http://$HOST" >> $GITHUB_ENV; exit 0
             fi
             echo "Waiting for frontend Service LB host... ($i)"; sleep 10
           done
-          if [ -z "$HOST" ]; then echo "LoadBalancer hostname not available"; exit 1; fi
+          echo "LoadBalancer hostname not available and no ALB secret provided"; exit 1
 
       - name: Install system deps and Chromium for Puppeteer
         run: |
