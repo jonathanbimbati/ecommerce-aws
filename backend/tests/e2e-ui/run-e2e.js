@@ -357,28 +357,62 @@ async function runE2E() {
   const name = 'E2E Product ' + Date.now();
   let usedModal = false;
   try {
-    const [btn] = await page.$x("//button[contains(., 'Novo produto')]");
-    if (btn) {
-      await btn.click();
+    // Try multiple variants for the "New product" button (i18n/markup tolerance)
+    const btnXPaths = [
+      "//button[contains(., 'Novo produto')]",
+      "//button[contains(., 'New product')]",
+      "//button[contains(., 'Novo')]"
+    ];
+    let btnHandle = null;
+    for (const xp of btnXPaths) {
+      btnHandle = await page.waitForXPath(xp, { visible: true, timeout: 10000 }).catch(() => null);
+      if (btnHandle) break;
+    }
+    if (btnHandle) {
+      // Prefer DOM-based click to avoid flaky clickable point calculations
+      try {
+        await btnHandle.evaluate(el => {
+          if (el && el.scrollIntoView) el.scrollIntoView({ block: 'center', inline: 'center' });
+          if (el && typeof el.click === 'function') el.click();
+        });
+      } catch (e) {
+        // Fallback to puppeteer click with slight delay
+        try { await btnHandle.click({ delay: 50 }); } catch (ee) { /* ignore, will fallback to legacy form */ }
+      }
+
       // Be resilient to animations: wait for the form inputs rather than the modal state
       await Promise.race([
-        page.waitForSelector('.modal.show input[placeholder="Nome"]', { timeout: 8000 }),
-        page.waitForSelector('input[placeholder="Nome"]', { timeout: 8000 })
+        page.waitForSelector('.modal.show input[placeholder="Nome"]', { timeout: 8000 }).catch(() => null),
+        page.waitForSelector('input[placeholder="Nome"]', { timeout: 8000 }).catch(() => null)
       ]);
-      const scope = '.modal.show ';
+
+      // Decide scope dynamically depending on whether a modal actually appeared
+      const modalPresent = !!(await page.$('.modal.show'));
+      const scope = modalPresent ? '.modal.show ' : '';
+
+      // Ensure fields are visible before typing
+      await page.waitForSelector(scope + 'input[placeholder="Nome"]', { visible: true, timeout: 10000 });
       await page.type(scope + 'input[placeholder="Nome"]', name);
+      await page.waitForSelector(scope + 'input[placeholder="Preço"]', { visible: true, timeout: 10000 });
       await page.type(scope + 'input[placeholder="Preço"]', '12.34');
+      await page.waitForSelector(scope + 'textarea[placeholder="Descrição"]', { visible: true, timeout: 10000 });
       await page.type(scope + 'textarea[placeholder="Descrição"]', 'Created by E2E');
+      await page.waitForSelector(scope + 'button.btn-success', { visible: true, timeout: 10000 });
       await page.click(scope + 'button.btn-success');
-      usedModal = true;
+      usedModal = modalPresent;
     }
   } catch (e) {
     // ignore, will fallback
   }
   if (!usedModal) {
+    // Legacy/global form flow: ensure inputs exist and are visible
+    await page.waitForSelector('input[placeholder="Nome"]', { visible: true, timeout: 15000 });
     await page.type('input[placeholder="Nome"]', name);
+    await page.waitForSelector('input[placeholder="Preço"]', { visible: true, timeout: 15000 });
     await page.type('input[placeholder="Preço"]', '12.34');
+    await page.waitForSelector('textarea[placeholder="Descrição"]', { visible: true, timeout: 15000 });
     await page.type('textarea[placeholder="Descrição"]', 'Created by E2E');
+    await page.waitForSelector('button.btn-success', { visible: true, timeout: 15000 });
     await page.click('button.btn-success');
   }
 
