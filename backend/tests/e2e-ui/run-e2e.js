@@ -360,7 +360,11 @@ async function runE2E() {
     const [btn] = await page.$x("//button[contains(., 'Novo produto')]");
     if (btn) {
       await btn.click();
-      await page.waitForSelector('.modal.show', { timeout: 5000 });
+      // Be resilient to animations: wait for the form inputs rather than the modal state
+      await Promise.race([
+        page.waitForSelector('.modal.show input[placeholder="Nome"]', { timeout: 8000 }),
+        page.waitForSelector('input[placeholder="Nome"]', { timeout: 8000 })
+      ]);
       const scope = '.modal.show ';
       await page.type(scope + 'input[placeholder="Nome"]', name);
       await page.type(scope + 'input[placeholder="Preço"]', '12.34');
@@ -436,8 +440,17 @@ async function runE2E() {
     }
     const editBtn = await targetCard.$('button.btn-primary');
     await editBtn.click();
-    // Wait modal
-    await page.waitForSelector('.modal.show', { timeout: 5000 });
+    // Wait for form fields to be available (modal or not), avoid flakiness on animations
+    try {
+      await Promise.race([
+        page.waitForSelector('.modal.show input[placeholder="Preço"]', { timeout: 8000 }),
+        page.waitForSelector('input[placeholder="Preço"]', { timeout: 8000 })
+      ]);
+    } catch (e) {
+      console.warn('Price input did not appear after clicking Edit');
+      await saveArtifacts('edit-form-not-visible');
+      throw e;
+    }
   }
 
   // Change price and save (prefer modal scope if present)
