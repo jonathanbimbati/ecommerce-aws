@@ -41,6 +41,22 @@ Resources:
               Service: events.amazonaws.com
             Action: sns:Publish
             Resource: !Ref TopicArn
+          - Sid: AllowAccountPublishCFN
+            Effect: Allow
+            Principal: "*"
+            Action: sns:Publish
+            Resource: !Ref TopicArn
+            Condition:
+              StringEquals:
+                'AWS:SourceOwner': !Sub "${AWS::AccountId}"
+          - Sid: AllowAccountPublish
+            Effect: Allow
+            Principal: "*"
+            Action: sns:Publish
+            Resource: !Ref TopicArn
+            Condition:
+              StringEquals:
+                AWS:SourceOwner: !Ref 'AWS::AccountId'
 
 Outputs:
   RuleName:
