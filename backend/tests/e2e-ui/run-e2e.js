@@ -356,6 +356,65 @@ async function runE2E() {
     return await checkHere();
   }
 
+  // Click a button for the product across pagination (e.g., Edit or Remove)
+  async function clickProductButtonAcrossPages(nm, btnClass = 'btn-danger', maxMs = 60000) {
+    const start = Date.now();
+    // If no pagination, try on current view
+    const hasPagination = await page.$('nav .pagination');
+    async function tryClickHere() {
+      return await page.evaluate((nm, btnClass) => {
+        // Table rows first
+        const rows = Array.from(document.querySelectorAll('table tbody tr'));
+        for (const row of rows) {
+          const firstCell = row.querySelector('td');
+          if (firstCell && firstCell.innerText && firstCell.innerText.includes(nm)) {
+            const btn = row.querySelector(`button.${btnClass}`);
+            if (btn) { try { btn.scrollIntoView({ block: 'center', inline: 'center' }); } catch(e){} btn.click(); return true; }
+          }
+        }
+        // Then cards
+        const cards = Array.from(document.querySelectorAll('.card'));
+        for (const card of cards) {
+          const title = card.querySelector('.card-title');
+          if (title && title.textContent && title.textContent.includes(nm)) {
+            const btn = card.querySelector(`button.${btnClass}`);
+            if (btn) { try { btn.scrollIntoView({ block: 'center', inline: 'center' }); } catch(e){} btn.click(); return true; }
+          }
+        }
+        return false;
+      }, nm, btnClass);
+    }
+    // Go to page 1 first if pagination exists
+    if (hasPagination) {
+      try {
+        await page.evaluate(() => {
+          const pager = document.querySelector('nav .pagination');
+          if (!pager) return;
+          const firstBtn = pager.querySelector('li.page-item:nth-child(2) a.page-link');
+          if (firstBtn) firstBtn.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+        });
+        await page.waitForTimeout(250);
+      } catch (e) { /* ignore */ }
+    }
+    while (Date.now() - start < maxMs) {
+      const clicked = await tryClickHere();
+      if (clicked) return true;
+      if (!hasPagination) break;
+      const moved = await page.evaluate(() => {
+        const pager = document.querySelector('nav .pagination');
+        if (!pager) return false;
+        const nextLi = pager.querySelector('li.page-item:last-child');
+        if (!nextLi || nextLi.classList.contains('disabled')) return false;
+        const nextLink = nextLi.querySelector('a.page-link');
+        if (nextLink) { nextLink.dispatchEvent(new MouseEvent('click', { bubbles: true })); return true; }
+        return false;
+      });
+      if (!moved) break;
+      await page.waitForTimeout(300);
+    }
+    return false;
+  }
+
   // Create a new product using modal if available, else legacy side form
   const name = 'E2E Product ' + Date.now();
   let usedModal = false;
@@ -552,30 +611,10 @@ async function runE2E() {
   } catch (e) { /* non-fatal */ }
 
   console.log('Product updated, now removing it via UI');
-  // Remove either from table row or card
+  // Remove the product, scanning across pagination if needed
   let removed = false;
   try {
-    removed = await page.evaluate((nm) => {
-      // Try table first
-      const rows = Array.from(document.querySelectorAll('table tbody tr'));
-      for (const row of rows) {
-        const firstCell = row.querySelector('td');
-        if (firstCell && firstCell.innerText && firstCell.innerText.includes(nm)) {
-          const btn = row.querySelector('button.btn-danger');
-          if (btn) { btn.scrollIntoView({ block: 'center', inline: 'center' }); (btn).click(); return true; }
-        }
-      }
-      // Then cards
-      const cards = Array.from(document.querySelectorAll('.card'));
-      for (const card of cards) {
-        const title = card.querySelector('.card-title');
-        if (title && title.textContent && title.textContent.includes(nm)) {
-          const btn = card.querySelector('button.btn-danger');
-          if (btn) { btn.scrollIntoView({ block: 'center', inline: 'center' }); (btn).click(); return true; }
-        }
-      }
-      return false;
-    }, name);
+    removed = await clickProductButtonAcrossPages(name, 'btn-danger', 60000);
   } catch (e) { /* ignore */ }
   if (!removed) {
     await saveArtifacts('remove-not-found');
