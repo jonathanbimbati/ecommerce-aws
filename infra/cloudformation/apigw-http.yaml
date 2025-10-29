@@ -63,7 +63,27 @@ Resources:
       Code:
         ZipFile: |
           const AWS = require('aws-sdk');
+          const crypto = require('crypto');
           const ddb = new AWS.DynamoDB.DocumentClient();
+
+          function scryptHash(password, salt) {
+            salt = salt || crypto.randomBytes(16).toString('hex');
+            const hash = crypto.scryptSync(password, salt, 64).toString('hex');
+            return { salt, hash };
+          }
+
+          function verifyPassword(password, salt, hash) {
+            try {
+              const h = crypto.scryptSync(password, salt, 64).toString('hex');
+              return h === hash;
+            } catch (_) { return false; }
+          }
+
+          function makeToken(username) {
+            // Lightweight opaque token sufficient for frontend tests; no verification on backend
+            const payload = Buffer.from(JSON.stringify({ sub: username, iat: Date.now() })).toString('base64url');
+            return `opaque.${payload}`;
+          }
 
           exports.handler = async (event) => {
             console.log('EVENT', JSON.stringify({ rawPath: event.rawPath, path: event.requestContext?.http?.path, method: event.requestContext?.http?.method }));
@@ -75,6 +95,45 @@ Resources:
               if (stage && path.startsWith('/' + stage)) {
                 path = path.substring(stage.length + 1) || '/';
                 if (!path.startsWith('/')) path = '/' + path;
+              }
+
+              // --- AUTH ENDPOINTS ---
+              // POST /api/auth/register
+              if (method === 'POST' && path === '/api/auth/register') {
+                const body = JSON.parse(event.body || '{}');
+                const { username, password, name } = body;
+                if (!username || !password) {
+                  return { statusCode: 400, body: JSON.stringify({ error: 'username and password required' }) };
+                }
+                const id = `user::${username}`;
+                // Check existing
+                const existing = await ddb.get({ TableName: process.env.TABLE_NAME, Key: { id } }).promise();
+                if (existing && existing.Item) {
+                  return { statusCode: 409, body: JSON.stringify({ error: 'User already exists' }) };
+                }
+                const { salt, hash } = scryptHash(password);
+                const item = { id, username, name, passwordSalt: salt, passwordHash: hash, createdAt: new Date().toISOString() };
+                await ddb.put({ TableName: process.env.TABLE_NAME, Item: item, ConditionExpression: 'attribute_not_exists(id)' }).promise();
+                const token = makeToken(username);
+                return { statusCode: 201, body: JSON.stringify({ token }) };
+              }
+
+              // POST /api/auth/login
+              if (method === 'POST' && path === '/api/auth/login') {
+                const body = JSON.parse(event.body || '{}');
+                const { username, password } = body;
+                if (!username || !password) {
+                  return { statusCode: 400, body: JSON.stringify({ error: 'username and password required' }) };
+                }
+                const id = `user::${username}`;
+                const res = await ddb.get({ TableName: process.env.TABLE_NAME, Key: { id } }).promise();
+                if (!res || !res.Item) {
+                  return { statusCode: 401, body: JSON.stringify({ error: 'Invalid credentials' }) };
+                }
+                const ok = verifyPassword(password, res.Item.passwordSalt, res.Item.passwordHash);
+                if (!ok) return { statusCode: 401, body: JSON.stringify({ error: 'Invalid credentials' }) };
+                const token = makeToken(username);
+                return { statusCode: 200, body: JSON.stringify({ token }) };
               }
 
               // GET /api/products
@@ -175,6 +234,20 @@ Resources:
       RouteKey: DELETE /api/products/{id}
       Target: !Sub "integrations/${ApiIntegration}"
       AuthorizerId: !If [ UseCognito, !Ref ApiAuthorizer, !Ref 'AWS::NoValue' ]
+
+  RoutePostAuthRegister:
+    Type: AWS::ApiGatewayV2::Route
+    Properties:
+      ApiId: !Ref Api
+      RouteKey: POST /api/auth/register
+      Target: !Sub "integrations/${ApiIntegration}"
+
+  RoutePostAuthLogin:
+    Type: AWS::ApiGatewayV2::Route
+    Properties:
+      ApiId: !Ref Api
+      RouteKey: POST /api/auth/login
+      Target: !Sub "integrations/${ApiIntegration}"
 
   Stage:
     Type: AWS::ApiGatewayV2::Stage
