@@ -93,7 +93,6 @@ jobs:
     runs-on: ubuntu-latest
     needs: build-and-push
     env:
-      ENABLE_E2E: ${{ secrets.ENABLE_E2E }}
       KUBE_CONFIG: ${{ secrets.KUBE_CONFIG }}
       AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
       AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
@@ -204,18 +203,25 @@ jobs:
             kubectl rollout status deployment/ecommerce-frontend -n staging --timeout=180s || true
           fi
 
-      - name: Wait for LoadBalancer hostname (staging service)
-        if: ${{ env.ENABLE_E2E == 'true' }}
+      - name: Resolve frontend host (prefer fixed ALB; fallback to Service LB)
         run: |
+          set -e
+          # Prefer explicit ALB hostname if provided via secret
+          if [ -n "${{ secrets.FRONTEND_ALB_HOSTNAME }}" ]; then
+            echo "Using FRONTEND_ALB_HOSTNAME secret"
+            echo "FRONTEND_HOST=${{ secrets.FRONTEND_ALB_HOSTNAME }}" >> $GITHUB_ENV
+            exit 0
+          fi
+
+          # Fallback: try to obtain Service LoadBalancer hostname in staging namespace
           for i in {1..20}; do
             HOST=$(kubectl get svc ecommerce-frontend -n staging -o jsonpath='{.status.loadBalancer.ingress[0].hostname}' 2>/dev/null || true)
             if [ -n "$HOST" ]; then
-              echo "FRONTEND_HOST=$HOST" >> $GITHUB_ENV
-              echo "Found LB host: $HOST"; break
+              echo "Found LB host: $HOST"; echo "FRONTEND_HOST=$HOST" >> $GITHUB_ENV; exit 0
             fi
             echo "Waiting for LB host... ($i)"; sleep 15
           done
-          if [ -z "$HOST" ]; then echo "LoadBalancer hostname not available"; exit 1; fi
+          echo "LoadBalancer hostname not available and no ALB secret provided"; exit 1
 
       - name: Probe backend API (API Gateway integration)
         run: |
@@ -250,7 +256,6 @@ jobs:
           echo "Backend OK (status $STATUS)"
 
       - name: Install system deps and Chromium for Puppeteer (E2E)
-        if: ${{ env.ENABLE_E2E == 'true' }}
         run: |
           sudo apt-get update && sudo apt-get install -y chromium-browser chromium
           if [ -x "/usr/bin/chromium-browser" ]; then
@@ -262,13 +267,11 @@ jobs:
           fi
 
       - name: Install puppeteer deps (E2E)
-        if: ${{ env.ENABLE_E2E == 'true' }}
         run: |
           cd backend/tests/e2e-ui
           npm ci
 
       - name: Run E2E tests against staging
-        if: ${{ env.ENABLE_E2E == 'true' }}
         run: |
           # Create artifacts dir for diagnostic outputs
           mkdir -p backend/tests/e2e-ui/artifacts || true

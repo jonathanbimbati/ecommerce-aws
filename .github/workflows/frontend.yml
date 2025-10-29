@@ -165,8 +165,7 @@ jobs:
 
   e2e-tests:
     runs-on: ubuntu-latest
-    needs: [deploy-to-k8s, prepare-e2e]
-    if: ${{ needs.prepare-e2e.outputs.enable_e2e == 'true' }}
+    needs: deploy-to-k8s
     env:
       KUBE_CONFIG: ${{ secrets.KUBE_CONFIG }}
       AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
@@ -203,25 +202,10 @@ jobs:
               }
             }
           }' $GITHUB_WORKSPACE/kubeconfig > $GITHUB_WORKSPACE/kubeconfig.fixed && mv $GITHUB_WORKSPACE/kubeconfig.fixed $GITHUB_WORKSPACE/kubeconfig
-          echo "KUBECONFIG=$GITHUB_WORKSPACE/kubeconfig" >> $GITHUB_ENV
-
-      - name: Configure Kubeconfig via AWS (if KUBE_CONFIG not provided)
-        if: ${{ env.KUBE_CONFIG == '' && env.AWS_ACCESS_KEY_ID != '' }}
-        uses: aws-actions/configure-aws-credentials@v2
-        with:
-          aws-access-key-id: ${{ env.AWS_ACCESS_KEY_ID }}
-          aws-secret-access-key: ${{ env.AWS_SECRET_ACCESS_KEY }}
-          aws-region: ${{ env.AWS_REGION }}
-
-      - name: Update kubeconfig using eksctl (when AWS creds available)
-        if: ${{ env.KUBE_CONFIG == '' && env.AWS_ACCESS_KEY_ID != '' }}
-        run: |
-          if [ -z "${{ env.EKS_CLUSTER_NAME }}" ]; then echo "EKS_CLUSTER_NAME secret is required when KUBE_CONFIG is not set" && exit 1; fi
           aws eks update-kubeconfig --name "${{ env.EKS_CLUSTER_NAME }}" --region ${{ env.AWS_REGION }}
           echo "KUBECONFIG=$HOME/.kube/config" >> $GITHUB_ENV
 
-      - name: Resolve frontend URL (prefer fixed ALB; fallback to Service LB)
-        run: |
+            needs: deploy-to-k8s
           set -e
           # 1) Prefer an explicit ALB hostname provided via repository secret FRONTEND_ALB_HOSTNAME
           if [ -n "${{ secrets.FRONTEND_ALB_HOSTNAME }}" ]; then
