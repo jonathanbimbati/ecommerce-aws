@@ -1,0 +1,53 @@
+name: Deploy SAM template.yaml
+
+on:
+  workflow_dispatch: {}
+
+env:
+  AWS_REGION: ${{ secrets.AWS_REGION }}
+
+jobs:
+  deploy-sam:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v2
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Setup SAM CLI
+        uses: aws-actions/setup-sam@v2
+
+      - name: Validate SAM template
+        run: |
+          sam validate -t template.yaml
+
+      - name: Deploy SAM stack (template.yaml)
+        run: |
+          set -euo pipefail
+          # samconfig.toml expects env var named 'jwt' (lowercase)
+          export jwt="${{ secrets.JWT_SECRET }}"
+          if [ -z "$jwt" ]; then echo "Missing JWT_SECRET repository secret" && exit 1; fi
+          echo "Deploying stack 'ecommerce-aws' in region ${AWS_REGION}"
+          sam deploy --config-file samconfig.toml --config-env default --no-confirm-changeset --no-fail-on-empty-changeset
+
+      - name: Capture CloudFormation outputs
+        id: cfn
+        run: |
+          mkdir -p sam-artifacts
+          aws cloudformation describe-stacks --stack-name ecommerce-aws \
+            --query 'Stacks[0].Outputs' --output json | tee sam-artifacts/outputs.json
+          # Extract bucket name and API endpoints to a simple txt for convenience
+          node -e "const fs=require('fs');const o=JSON.parse(fs.readFileSync('sam-artifacts/outputs.json'));const m=Object.fromEntries(o.map(x=>[x.OutputKey,x.OutputValue]));console.log('UploadsBucketName:',m.UploadsBucketName||'');console.log('ApiBaseEndpoint:',m.ApiBaseEndpoint||'');" | tee sam-artifacts/summary.txt
+
+      - name: Upload deployment artifacts
+        if: ${{ always() }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: sam-deploy-outputs
+          path: sam-artifacts/**
