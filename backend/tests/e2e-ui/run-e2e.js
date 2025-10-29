@@ -305,68 +305,134 @@ async function runE2E() {
     throw err;
   }
 
-  // Create a new product via the form on the right
+  // Helper to check product presence in table or cards
+  async function isProductVisible(nm) {
+    return await page.evaluate((nm) => {
+      const inTable = Array.from(document.querySelectorAll('table tbody tr td')).some(td => td.innerText.includes(nm));
+      const inCards = Array.from(document.querySelectorAll('.card .card-title')).some(el => el.textContent && el.textContent.includes(nm));
+      return inTable || inCards;
+    }, nm);
+  }
+
+  // Create a new product using modal if available, else legacy side form
   const name = 'E2E Product ' + Date.now();
-  await page.type('input[placeholder="Nome"]', name);
-  await page.type('input[placeholder="Preço"]', '12.34');
-  await page.type('textarea[placeholder="Descrição"]', 'Created by E2E');
-  await page.click('button.btn-success');
-  console.log('Waiting for product to appear in the table...');
+  let usedModal = false;
   try {
-    await page.waitForFunction((nm) => {
-      return Array.from(document.querySelectorAll('table tbody tr td')).some(td => td.innerText.includes(nm));
-    }, { timeout: 15000 }, name);
+    const [btn] = await page.$x("//button[contains(., 'Novo produto')]");
+    if (btn) {
+      await btn.click();
+      await page.waitForSelector('.modal.show', { timeout: 5000 });
+      const scope = '.modal.show ';
+      await page.type(scope + 'input[placeholder="Nome"]', name);
+      await page.type(scope + 'input[placeholder="Preço"]', '12.34');
+      await page.type(scope + 'textarea[placeholder="Descrição"]', 'Created by E2E');
+      await page.click(scope + 'button.btn-success');
+      usedModal = true;
+    }
+  } catch (e) {
+    // ignore, will fallback
+  }
+  if (!usedModal) {
+    await page.type('input[placeholder="Nome"]', name);
+    await page.type('input[placeholder="Preço"]', '12.34');
+    await page.type('textarea[placeholder="Descrição"]', 'Created by E2E');
+    await page.click('button.btn-success');
+  }
+
+  console.log('Waiting for product to appear in the UI...');
+  try {
+    await page.waitForFunction(isProductVisible, { timeout: 20000 }, name);
   } catch (err) {
     console.error('Waiting for created product failed:', err);
     await saveArtifacts('wait-for-product-failure');
     throw err;
   }
 
-  // Click Edit on the product row (find the button by traversing rows)
-  const rows = await page.$$('table tbody tr');
-  let targetRow = null;
-  for (const row of rows) {
-    const text = await row.$eval('td', td => td.innerText);
-    if (text.includes(name)) { targetRow = row; break; }
-  }
-  if (!targetRow) {
-    await saveArtifacts('no-product-row');
-    throw new Error('Created product row not found');
+  // Click Edit on the product (table row or card)
+  let editedViaTable = false;
+  try {
+    const rows = await page.$$('table tbody tr');
+    for (const row of rows) {
+      const text = await row.$eval('td', td => td.innerText);
+      if (text.includes(name)) {
+        const editBtn = await row.$('button.btn-primary');
+        await editBtn.click();
+        editedViaTable = true;
+        break;
+      }
+    }
+  } catch (e) { /* ignore */ }
+
+  if (!editedViaTable) {
+    // Find card and click Edit
+    const cards = await page.$$('.card');
+    let targetCard = null;
+    for (const card of cards) {
+      const hasName = await card.$eval('.card-title', el => el && el.textContent ? el.textContent : '');
+      if (hasName && hasName.includes(name)) { targetCard = card; break; }
+    }
+    if (!targetCard) {
+      await saveArtifacts('no-product-card');
+      throw new Error('Created product card not found');
+    }
+    const editBtn = await targetCard.$('button.btn-primary');
+    await editBtn.click();
+    // Wait modal
+    await page.waitForSelector('.modal.show', { timeout: 5000 });
   }
 
-  // Click Edit
-  const editBtn = await targetRow.$('button.btn-primary');
-  await editBtn.click();
-  await page.waitForSelector('input[placeholder="Nome"]');
-
-  // Change price and save
-  const priceInput = await page.$('input[placeholder="Preço"]');
+  // Change price and save (prefer modal scope if present)
+  const modalVisible = await page.$('.modal.show');
+  const scope = modalVisible ? '.modal.show ' : '';
+  const priceInput = await page.$(scope + 'input[placeholder="Preço"]');
   await priceInput.click({ clickCount: 3 });
   await priceInput.type('19.9');
-  await page.click('button.btn-success');
+  await page.click(scope + 'button.btn-success');
   console.log('Waiting for product update to be reflected...');
-  // wait briefly for table to update
   await page.waitForTimeout(1000);
+
   console.log('Product updated, now removing it via UI');
-  // Find the row again and click Remove
-  const rows2 = await page.$$('table tbody tr');
-  for (const row of rows2) {
-    const text = await row.$eval('td', td => td.innerText);
-    if (text.includes(name)) {
-      const delBtn = await row.$('button.btn-danger');
-      await delBtn.click();
-      console.log('Waiting for product to be removed from the table...');
-      try {
-        await page.waitForFunction((nm) => {
-          return !Array.from(document.querySelectorAll('table tbody tr td')).some(td => td.innerText.includes(nm));
-        }, { timeout: 15000 }, name);
-      } catch (err) {
-        console.error('Waiting for product removal failed:', err);
-        await saveArtifacts('remove-wait-failure');
-        throw err;
+  // Remove either from table row or card
+  let removed = false;
+  try {
+    const rows2 = await page.$$('table tbody tr');
+    for (const row of rows2) {
+      const text = await row.$eval('td', td => td.innerText);
+      if (text.includes(name)) {
+        const delBtn = await row.$('button.btn-danger');
+        await delBtn.click();
+        removed = true;
+        break;
       }
-      break;
     }
+  } catch (e) { /* ignore */ }
+  if (!removed) {
+    const cards2 = await page.$$('.card');
+    for (const card of cards2) {
+      const title = await card.$eval('.card-title', el => el && el.textContent ? el.textContent : '');
+      if (title && title.includes(name)) {
+        const delBtn = await card.$('button.btn-danger');
+        await delBtn.click();
+        removed = true;
+        break;
+      }
+    }
+  }
+  if (!removed) {
+    await saveArtifacts('remove-not-found');
+    throw new Error('Could not find product to remove');
+  }
+  console.log('Waiting for product to be removed from the UI...');
+  try {
+    await page.waitForFunction(async (nm) => {
+      const inTable = Array.from(document.querySelectorAll('table tbody tr td')).some(td => td.innerText.includes(nm));
+      const inCards = Array.from(document.querySelectorAll('.card .card-title')).some(el => el.textContent && el.textContent.includes(nm));
+      return !(inTable || inCards);
+    }, { timeout: 20000 }, name);
+  } catch (err) {
+    console.error('Waiting for product removal failed:', err);
+    await saveArtifacts('remove-wait-failure');
+    throw err;
   }
 
   console.log('Product removed, E2E completed');

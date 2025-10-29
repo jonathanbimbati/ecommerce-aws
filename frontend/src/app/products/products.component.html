@@ -1,33 +1,107 @@
-<div class="row">
-  <div class="col-md-8">
-    <table class="table table-striped">
-      <thead>
-        <tr><th>Nome</th><th>Preço</th><th>Descrição</th><th></th></tr>
-      </thead>
-      <tbody>
-        <tr *ngFor="let p of products">
-          <td>{{p.name}}</td>
-          <td>{{p.price | currency:'BRL'}}</td>
-          <td>{{p.description}}</td>
-          <td>
-            <button class="btn btn-sm btn-primary me-2" (click)="edit(p)">Editar</button>
-            <button class="btn btn-sm btn-danger" (click)="remove(p.id)">Remover</button>
-          </td>
-        </tr>
-      </tbody>
-    </table>
+<div class="d-flex justify-content-between align-items-center mb-3">
+  <h4 class="mb-0">Produtos</h4>
+  <button class="btn btn-primary" (click)="newProduct()" data-bs-toggle="modal" [attr.data-bs-target]="'#' + formModalId">
+    Novo produto
+  </button>
+  
+</div>
+
+<!-- Cards grid -->
+<div class="row row-cols-1 row-cols-sm-2 row-cols-md-3 row-cols-lg-4 g-3">
+  <div class="col" *ngFor="let p of paginated">
+    <div class="card h-100 shadow-sm">
+      <img *ngIf="p.imageUrl" [src]="p.imageUrl" class="card-img-top" alt="{{p.name}}">
+      <div class="card-body d-flex flex-column">
+        <h5 class="card-title">{{ p.name }}</h5>
+        <h6 class="card-subtitle mb-2 text-muted">{{ p.price | currency:'BRL' }}</h6>
+        <p class="card-text" style="flex:1 1 auto; max-height: 4.5em; overflow: hidden;">{{ p.description }}</p>
+        <div class="mt-2">
+          <button class="btn btn-sm btn-outline-secondary me-2" (click)="openDetails(p)" data-bs-toggle="modal" [attr.data-bs-target]="'#' + detailsModalId">Detalhes</button>
+          <button class="btn btn-sm btn-primary me-2" (click)="edit(p)" data-bs-toggle="modal" [attr.data-bs-target]="'#' + formModalId">Editar</button>
+          <button class="btn btn-sm btn-danger" (click)="remove(p.id)">Remover</button>
+        </div>
+      </div>
+    </div>
   </div>
-  <div class="col-md-4">
-    <h5>{{ editingId ? 'Editar' : 'Novo' }} produto</h5>
-    <div class="mb-2">
-      <input [(ngModel)]="model.name" class="form-control" placeholder="Nome">
+</div>
+
+<!-- Pagination -->
+<nav class="mt-3" *ngIf="totalPages > 1">
+  <ul class="pagination justify-content-center">
+    <li class="page-item" [class.disabled]="currentPage === 1">
+      <a class="page-link" href="#" (click)="$event.preventDefault(); goTo(currentPage - 1)">Anterior</a>
+    </li>
+    <li class="page-item" *ngFor="let p of [].constructor(totalPages); index as i" [class.active]="(i+1) === currentPage">
+      <a class="page-link" href="#" (click)="$event.preventDefault(); goTo(i+1)">{{ i + 1 }}</a>
+    </li>
+    <li class="page-item" [class.disabled]="currentPage === totalPages">
+      <a class="page-link" href="#" (click)="$event.preventDefault(); goTo(currentPage + 1)">Próxima</a>
+    </li>
+  </ul>
+  <div class="text-center text-muted small">Página {{currentPage}} de {{totalPages}}</div>
+</nav>
+
+<!-- Modal: Create/Edit Product -->
+<div class="modal fade" [id]="formModalId" tabindex="-1" aria-hidden="true">
+  <div class="modal-dialog">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h5 class="modal-title">{{ editingId ? 'Editar' : 'Novo' }} produto</h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+      </div>
+      <div class="modal-body">
+        <div class="mb-2">
+          <label class="form-label">Nome</label>
+          <input [(ngModel)]="model.name" class="form-control" placeholder="Nome">
+        </div>
+        <div class="mb-2">
+          <label class="form-label">Preço</label>
+          <input type="number" [(ngModel)]="model.price" class="form-control" placeholder="Preço">
+        </div>
+        <div class="mb-2">
+          <label class="form-label">Descrição</label>
+          <textarea [(ngModel)]="model.description" class="form-control" placeholder="Descrição"></textarea>
+        </div>
+        <div class="mb-2">
+          <label class="form-label">Imagem (URL)</label>
+          <input [(ngModel)]="model.imageUrl" class="form-control" placeholder="https://...">
+          <div class="form-text">Opcional. Em um próximo passo podemos habilitar upload direto para S3.</div>
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancelar</button>
+        <button type="button" class="btn btn-success" (click)="save()">Salvar</button>
+      </div>
     </div>
-    <div class="mb-2">
-      <input type="number" [(ngModel)]="model.price" class="form-control" placeholder="Preço">
+  </div>
+  
+</div>
+
+<!-- Modal: Product Details -->
+<div class="modal fade" [id]="detailsModalId" tabindex="-1" aria-hidden="true">
+  <div class="modal-dialog modal-lg">
+    <div class="modal-content" *ngIf="selected">
+      <div class="modal-header">
+        <h5 class="modal-title">{{ selected?.name }}</h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close" (click)="closeDetails()"></button>
+      </div>
+      <div class="modal-body">
+        <div class="row g-3">
+          <div class="col-md-6">
+            <img *ngIf="selected?.imageUrl" [src]="selected?.imageUrl" class="img-fluid rounded border" alt="{{selected?.name}}">
+            <div *ngIf="!selected?.imageUrl" class="text-muted">Sem imagem</div>
+          </div>
+          <div class="col-md-6">
+            <h6 class="text-muted">Preço</h6>
+            <p>{{ selected?.price | currency:'BRL' }}</p>
+            <h6 class="text-muted">Descrição</h6>
+            <p style="white-space: pre-wrap;">{{ selected?.description || '—' }}</p>
+          </div>
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-secondary" data-bs-dismiss="modal" (click)="closeDetails()">Fechar</button>
+      </div>
     </div>
-    <div class="mb-2">
-      <textarea [(ngModel)]="model.description" class="form-control" placeholder="Descrição"></textarea>
-    </div>
-    <button class="btn btn-success" (click)="save()">Salvar</button>
   </div>
 </div>

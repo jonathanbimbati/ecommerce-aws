@@ -54,11 +54,11 @@ const jwtAuth = require('../middleware/jwtAuth');
 
 // POST /api/products
 router.post('/', jwtAuth, async (req, res) => {
-  const { name, price, description } = req.body;
+  const { name, price, description, imageUrl } = req.body;
   if (!name || typeof price !== 'number') {
     return res.status(400).json({ error: 'Invalid payload: name and numeric price required' });
   }
-  const item = { id: uuidv4(), name, price, description: description || '' };
+  const item = { id: uuidv4(), name, price, description: description || '', imageUrl: imageUrl || '' };
   try {
     if (process.env.DYNAMODB_TABLE) {
       await db.createProduct(item);
@@ -76,7 +76,7 @@ router.post('/', jwtAuth, async (req, res) => {
 // PUT /api/products/:id
 router.put('/:id', jwtAuth, async (req, res) => {
   const updates = {};
-  const allowed = ['name', 'price', 'description'];
+  const allowed = ['name', 'price', 'description', 'imageUrl'];
   for (const key of allowed) {
     if (req.body[key] !== undefined) updates[key] = req.body[key];
   }
