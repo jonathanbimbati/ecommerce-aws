@@ -7,13 +7,18 @@ interface AuthResponse { token: string }
 @Injectable({ providedIn: 'root' })
 export class AuthService {
   private tokenKey = 'ecom_token';
+  private apiBase: string;
 
-  constructor(private http: HttpClient) {}
+  constructor(private http: HttpClient) {
+    const w: any = (window as any);
+    const base = w && w.__env && w.__env.API_URL ? w.__env.API_URL : '';
+    this.apiBase = base || '';
+  }
 
   async login(username: string, password: string) {
     // Try backend login
     try {
-      const obs = this.http.post<AuthResponse>('/api/auth/login', { username, password });
+  const obs = this.http.post<AuthResponse>(`${this.apiBase}/api/auth/login`, { username, password });
       const res = await firstValueFrom(obs);
       if (res && res.token) {
         localStorage.setItem(this.tokenKey, res.token);
@@ -41,7 +46,7 @@ export class AuthService {
 
   async register(username: string, password: string, name?: string) {
     try {
-      const obs = this.http.post<AuthResponse>('/api/auth/register', { username, password, name });
+  const obs = this.http.post<AuthResponse>(`${this.apiBase}/api/auth/register`, { username, password, name });
       const res = await firstValueFrom(obs);
       if (res && res.token) {
         localStorage.setItem(this.tokenKey, res.token);
@@ -55,6 +60,14 @@ export class AuthService {
 
   logout() {
     localStorage.removeItem(this.tokenKey);
+  }
+
+  setToken(token: string) {
+    if (token && token.split('.').length === 3) {
+      localStorage.setItem(this.tokenKey, token);
+      return true;
+    }
+    return false;
   }
 
   isAuthenticated(): boolean {
