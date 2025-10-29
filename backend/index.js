@@ -3,6 +3,7 @@ const cors = require('cors');
 const bodyParser = require('body-parser');
 const productsRouter = require('./routes/products');
 const authRouter = require('./routes/auth');
+const uploadsRouter = require('./routes/uploads');
 
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -38,6 +39,7 @@ app.use(bodyParser.json());
 
 app.use('/api/products', productsRouter);
 app.use('/api/auth', authRouter);
+app.use('/api/uploads', uploadsRouter);
 
 // Health endpoint used by Kubernetes liveness/readiness probes
 app.get('/api/health', (req, res) => {

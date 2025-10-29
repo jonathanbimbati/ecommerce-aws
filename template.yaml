@@ -17,6 +17,35 @@ Globals:
         DYNAMODB_TABLE: !Ref ProductsTable
 
 Resources:
+  UploadsBucket:
+    Type: AWS::S3::Bucket
+    Properties:
+      BucketName: !Sub '${AWS::StackName}-uploads'
+      PublicAccessBlockConfiguration:
+        BlockPublicAcls: false
+        BlockPublicPolicy: false
+        IgnorePublicAcls: false
+        RestrictPublicBuckets: false
+      CorsConfiguration:
+        CorsRules:
+          - AllowedMethods: [ 'PUT', 'POST', 'GET', 'HEAD' ]
+            AllowedOrigins: [ '*' ]
+            AllowedHeaders: [ '*' ]
+            MaxAge: 3000
+
+  UploadsBucketPolicy:
+    Type: AWS::S3::BucketPolicy
+    Properties:
+      Bucket: !Ref UploadsBucket
+      PolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Sid: PublicReadForPublicPrefix
+            Effect: Allow
+            Principal: '*'
+            Action: s3:GetObject
+            Resource: !Sub '${UploadsBucket.Arn}/public/*'
+
 
   ProductsTable:
     Type: AWS::DynamoDB::Table
@@ -90,10 +119,18 @@ Resources:
             - Effect: Allow
               Action: sns:Publish
               Resource: !Ref NotificationTopic
+            - Effect: Allow
+              Action:
+                - s3:PutObject
+                - s3:PutObjectAcl
+              Resource: !Sub '${UploadsBucket.Arn}/*'
       Environment:
         Variables:
           USERS_TABLE: !Ref UsersTable
           JWT_SECRET: !Ref JwtSecretParam
+          S3_BUCKET: !Ref UploadsBucket
+          S3_PREFIX: 'public/'
+          S3_PUBLIC_URL_BASE: !Sub 'https://${UploadsBucket}.s3.${AWS::Region}.amazonaws.com'
       Events:
         ProxyApi:
           Type: Api
@@ -160,6 +197,10 @@ Outputs:
   ApiBaseEndpoint:
     Description: "API base endpoint (use /Prod/api/... for auth/product routes)"
     Value: !Sub "https://${ServerlessRestApi}.execute-api.${AWS::Region}.amazonaws.com/Prod"
+
+  UploadsBucketName:
+    Description: "Uploads S3 bucket name"
+    Value: !Ref UploadsBucket
 
   NotificationTopicArn:
     Description: "SNS topic ARN for product notifications"

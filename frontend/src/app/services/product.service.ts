@@ -7,6 +7,7 @@ declare const window: any;
 export class ProductService {
   private apiBase = (window && window.__env && window.__env.API_URL) ? window.__env.API_URL : '';
   base = (this.apiBase || '') + '/api/products';
+  uploadsBase = (this.apiBase || '') + '/api/uploads';
   constructor(private http: HttpClient) {}
 
   async list() {
@@ -27,5 +28,17 @@ export class ProductService {
 
   async delete(id: string) {
     return await firstValueFrom(this.http.delete(`${this.base}/${id}`));
+  }
+
+  // S3 direct upload helpers
+  async presignUpload(fileName: string, contentType: string) {
+    return await firstValueFrom(this.http.post<any>(`${this.uploadsBase}/presign`, { fileName, contentType }));
+  }
+
+  async putToS3(uploadUrl: string, file: File, contentType: string) {
+    // Use fetch to avoid Angular interceptors/CORS complications and to set raw body
+    const resp = await fetch(uploadUrl, { method: 'PUT', headers: { 'Content-Type': contentType }, body: file });
+    if (!resp.ok) throw new Error(`S3 upload failed with status ${resp.status}`);
+    return true;
   }
 }

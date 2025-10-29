@@ -13,6 +13,7 @@ export class ProductsComponent implements OnInit {
   products: any[] = [];
   model: any = { name: '', price: null, description: '', imageUrl: '' };
   editingId: string | null = null;
+  pendingUpload: { file?: File, uploading: boolean, error?: string } = { uploading: false };
   // Modal state
   private bootstrap: any = (window as any)['bootstrap'];
   formModalId = 'productModal';
@@ -61,6 +62,22 @@ export class ProductsComponent implements OnInit {
     this.editingId = null;
     this.model = { name: '', price: null, description: '', imageUrl: '' };
     this.showForm();
+  }
+
+  async onFileSelected(evt: any) {
+    const file: File | undefined = evt?.target?.files?.[0];
+    this.pendingUpload = { file, uploading: false, error: undefined };
+    if (!file) return;
+    try {
+      this.pendingUpload.uploading = true;
+      const presign = await this.service.presignUpload(file.name, file.type || 'application/octet-stream');
+      await this.service.putToS3(presign.uploadUrl, file, file.type || 'application/octet-stream');
+      this.model.imageUrl = presign.objectUrl;
+      this.pendingUpload.uploading = false;
+    } catch (e: any) {
+      this.pendingUpload.error = e?.message || String(e);
+      this.pendingUpload.uploading = false;
+    }
   }
 
   showForm() {
