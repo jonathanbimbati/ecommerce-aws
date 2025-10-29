@@ -32,7 +32,8 @@ export class ProductService {
 
   // S3 direct upload helpers
   async presignUpload(fileName: string, contentType: string) {
-    return await firstValueFrom(this.http.post<any>(`${this.uploadsBase}/presign`, { fileName, contentType }));
+    const size = (fileName as any).size ? (fileName as any).size : undefined;
+    return await firstValueFrom(this.http.post<any>(`${this.uploadsBase}/presign`, { fileName, contentType, size }));
   }
 
   async putToS3(uploadUrl: string, file: File, contentType: string) {
@@ -40,5 +41,29 @@ export class ProductService {
     const resp = await fetch(uploadUrl, { method: 'PUT', headers: { 'Content-Type': contentType }, body: file });
     if (!resp.ok) throw new Error(`S3 upload failed with status ${resp.status}`);
     return true;
+  }
+
+  async putToS3WithProgress(uploadUrl: string, file: File, contentType: string, onProgress?: (percent: number) => void): Promise<void> {
+    return new Promise<void>((resolve, reject) => {
+      try {
+        const xhr = new XMLHttpRequest();
+        xhr.open('PUT', uploadUrl, true);
+        xhr.setRequestHeader('Content-Type', contentType);
+        xhr.upload.onprogress = (evt) => {
+          if (evt.lengthComputable && onProgress) {
+            const pct = Math.round((evt.loaded / evt.total) * 100);
+            onProgress(pct);
+          }
+        };
+        xhr.onload = () => {
+          if (xhr.status >= 200 && xhr.status < 300) resolve();
+          else reject(new Error(`S3 upload failed with status ${xhr.status}`));
+        };
+        xhr.onerror = () => reject(new Error('Network error during S3 upload'));
+        xhr.send(file);
+      } catch (e) {
+        reject(e);
+      }
+    });
   }
 }

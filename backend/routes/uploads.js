@@ -19,19 +19,34 @@ function getS3Config() {
 }
 
 // POST /api/uploads/presign
-// Body: { fileName: string, contentType: string }
+// Body: { fileName: string, contentType: string, size?: number }
 // Response: { uploadUrl, method: 'PUT', headers: { 'Content-Type': ... }, key, objectUrl }
 router.post('/presign', async (req, res) => {
   try {
-    const { fileName, contentType } = req.body || {};
+    const { fileName, contentType, size } = req.body || {};
     if (!fileName || !contentType) return res.status(400).json({ error: 'fileName and contentType are required' });
+
+    // Enforce content-type and size limits
+    const allowed = new Set(['image/png', 'image/jpeg']);
+    const maxBytes = parseInt(process.env.MAX_UPLOAD_BYTES || String(5 * 1024 * 1024), 10); // default 5MB
+    if (!allowed.has(String(contentType).toLowerCase())) {
+      return res.status(415).json({ error: 'Unsupported media type. Only PNG and JPEG are allowed.' });
+    }
+    if (typeof size === 'number' && size > maxBytes) {
+      return res.status(413).json({ error: `File too large. Max ${Math.floor(maxBytes/1024/1024)}MB.` });
+    }
 
     const { region, bucket, publicBase, prefix } = getS3Config();
     const ext = (fileName.includes('.') ? fileName.substring(fileName.lastIndexOf('.')) : '').toLowerCase();
     const key = `${prefix}${uuidv4()}${ext}`;
 
     const s3 = new S3Client({ region });
-    const command = new PutObjectCommand({ Bucket: bucket, Key: key, ContentType: contentType });
+    const putParams = { Bucket: bucket, Key: key, ContentType: contentType };
+    if (typeof size === 'number' && size > 0) {
+      // When included in the signature, client PUT must match this content-length
+      putParams.ContentLength = size;
+    }
+    const command = new PutObjectCommand(putParams);
     const uploadUrl = await getSignedUrl(s3, command, { expiresIn: 60 });
 
     // Compute a public object URL when possible
@@ -43,7 +58,7 @@ router.post('/presign', async (req, res) => {
       objectUrl = `https://${bucket}.s3.${region}.amazonaws.com/${key}`;
     }
 
-    return res.json({ uploadUrl, method: 'PUT', headers: { 'Content-Type': contentType }, key, objectUrl, expiresIn: 60 });
+    return res.json({ uploadUrl, method: 'PUT', headers: { 'Content-Type': contentType }, key, objectUrl, expiresIn: 60, maxBytes });
   } catch (err) {
     console.error('Error generating S3 presign:', err);
     const msg = err && err.message ? err.message : 'Internal server error';

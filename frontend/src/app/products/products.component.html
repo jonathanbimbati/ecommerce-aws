@@ -10,7 +10,7 @@
 <div class="row row-cols-1 row-cols-sm-2 row-cols-md-3 row-cols-lg-4 g-3">
   <div class="col" *ngFor="let p of paginated">
     <div class="card h-100 shadow-sm">
-      <img *ngIf="p.imageUrl" [src]="p.imageUrl" class="card-img-top" alt="{{p.name}}">
+  <img *ngIf="p.imageUrl" [src]="p.imageUrl" class="card-img-top product-card-img" alt="{{p.name}}">
       <div class="card-body d-flex flex-column">
         <h5 class="card-title">{{ p.name }}</h5>
         <h6 class="card-subtitle mb-2 text-muted">{{ p.price | currency:'BRL' }}</h6>
@@ -71,6 +71,9 @@
           <label class="form-label">Upload de imagem</label>
           <input type="file" class="form-control" (change)="onFileSelected($event)" accept="image/*">
           <div *ngIf="pendingUpload.uploading" class="form-text">Enviando...</div>
+          <div class="progress mt-2" *ngIf="pendingUpload.uploading">
+            <div class="progress-bar" role="progressbar" [style.width]="(pendingUpload.progress || 0) + '%'" aria-valuemin="0" aria-valuemax="100">{{ pendingUpload.progress || 0 }}%</div>
+          </div>
           <div *ngIf="pendingUpload.error" class="text-danger small">{{ pendingUpload.error }}</div>
         </div>
       </div>

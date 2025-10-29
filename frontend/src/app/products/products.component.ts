@@ -13,7 +13,9 @@ export class ProductsComponent implements OnInit {
   products: any[] = [];
   model: any = { name: '', price: null, description: '', imageUrl: '' };
   editingId: string | null = null;
-  pendingUpload: { file?: File, uploading: boolean, error?: string } = { uploading: false };
+  pendingUpload: { file?: File, uploading: boolean, error?: string, progress?: number } = { uploading: false };
+  readonly MAX_MB = 5;
+  readonly ALLOWED_TYPES = ['image/png', 'image/jpeg'];
   // Modal state
   private bootstrap: any = (window as any)['bootstrap'];
   formModalId = 'productModal';
@@ -66,12 +68,27 @@ export class ProductsComponent implements OnInit {
 
   async onFileSelected(evt: any) {
     const file: File | undefined = evt?.target?.files?.[0];
-    this.pendingUpload = { file, uploading: false, error: undefined };
+    this.pendingUpload = { file, uploading: false, error: undefined, progress: 0 };
     if (!file) return;
+    // Validate type and size
+    if (!this.ALLOWED_TYPES.includes(file.type)) {
+      this.pendingUpload.error = 'Apenas PNG e JPEG são permitidos.';
+      return;
+    }
+    const maxBytes = this.MAX_MB * 1024 * 1024;
+    if (file.size > maxBytes) {
+      this.pendingUpload.error = `Arquivo muito grande. Máximo ${this.MAX_MB}MB.`;
+      return;
+    }
     try {
       this.pendingUpload.uploading = true;
       const presign = await this.service.presignUpload(file.name, file.type || 'application/octet-stream');
-      await this.service.putToS3(presign.uploadUrl, file, file.type || 'application/octet-stream');
+      await this.service.putToS3WithProgress(
+        presign.uploadUrl,
+        file,
+        file.type || 'application/octet-stream',
+        (pct) => { this.pendingUpload.progress = pct; }
+      );
       this.model.imageUrl = presign.objectUrl;
       this.pendingUpload.uploading = false;
     } catch (e: any) {

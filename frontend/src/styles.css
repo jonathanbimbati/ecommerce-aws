@@ -1,1 +1,8 @@
+/* Fixed size for product images inside cards */
+.product-card-img {
+	width: 100%;
+	height: 180px;
+	object-fit: cover;
+	object-position: center center;
+}
 body { padding-top: 1rem; }

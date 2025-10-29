@@ -68,6 +68,17 @@ Arquivos:
 - `frontend/src/app/services/product.service.ts`: novos métodos `presignUpload` e `putToS3`
 - `frontend/src/app/products/products.component.*`: `onFileSelected(...)` e UI de upload
 
+## Limites, progresso e UX
+
+- Tipos permitidos: PNG e JPEG (validados no frontend e backend).
+- Tamanho máximo: 5 MB (validado no frontend e aceito no presign; a URL pode incluir Content-Length esperado).
+- Barra de progresso: o upload usa XMLHttpRequest com `upload.onprogress`, exibindo progresso no modal.
+- As imagens nos cards têm altura fixa (180px) com `object-fit: cover` para não expandir o card.
+
+Caso queira alterar limites, ajuste:
+- Frontend: `MAX_MB` e `ALLOWED_TYPES` em `products.component.ts`.
+- Backend: `process.env.MAX_UPLOAD_BYTES` (ou altere o valor default no `uploads.js`).
+
 ## Observações de segurança
 
 - O prefixo público `public/` é exposto somente para leitura (`GetObject`).
