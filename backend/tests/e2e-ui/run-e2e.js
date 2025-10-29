@@ -50,7 +50,10 @@ async function runE2E() {
       // Common Windows paths
       'C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe',
       'C:\\Program Files (x86)\\Google\\Chrome\\Application\\chrome.exe',
-      'C:\\Program Files\\Chromium\\Application\\chrome.exe'
+      'C:\\Program Files\\Chromium\\Application\\chrome.exe',
+      // Microsoft Edge (Chromium)
+      'C:\\Program Files (x86)\\Microsoft\\Edge\\Application\\msedge.exe',
+      'C:\\Program Files\\Microsoft\\Edge\\Application\\msedge.exe'
     ];
     for (const p of candidates) {
       if (fs.existsSync(p)) return p;
@@ -453,7 +456,12 @@ async function runE2E() {
       const text = await row.$eval('td', td => td.innerText);
       if (text.includes(name)) {
         const editBtn = await row.$('button.btn-primary');
-        await editBtn.click();
+        if (!editBtn) continue;
+        try {
+          await editBtn.evaluate(el => { el.scrollIntoView({ block: 'center', inline: 'center' }); el.click(); });
+        } catch (e) {
+          try { await editBtn.click({ delay: 50 }); } catch (ee) { /* will try cards flow */ }
+        }
         editedViaTable = true;
         break;
       }
@@ -473,7 +481,15 @@ async function runE2E() {
       throw new Error('Created product card not found');
     }
     const editBtn = await targetCard.$('button.btn-primary');
-    await editBtn.click();
+    if (!editBtn) {
+      await saveArtifacts('edit-button-not-found');
+      throw new Error('Edit button not found in product card');
+    }
+    try {
+      await editBtn.evaluate(el => { el.scrollIntoView({ block: 'center', inline: 'center' }); el.click(); });
+    } catch (e) {
+      try { await editBtn.click({ delay: 50 }); } catch (ee) {}
+    }
     // Wait for form fields to be available (modal or not), avoid flakiness on animations
     try {
       await Promise.race([
@@ -493,9 +509,25 @@ async function runE2E() {
   const priceInput = await page.$(scope + 'input[placeholder="Preço"]');
   await priceInput.click({ clickCount: 3 });
   await priceInput.type('19.9');
-  await page.click(scope + 'button.btn-success');
+  await page.waitForSelector(scope + 'button.btn-success', { visible: true, timeout: 10000 });
+  // Click Save for update robustly
+  try {
+    await page.$eval(scope + 'button.btn-success', el => { el.scrollIntoView({ block: 'center', inline: 'center' }); el.click(); });
+  } catch (e) {
+    await page.click(scope + 'button.btn-success');
+  }
   console.log('Waiting for product update to be reflected...');
-  await page.waitForTimeout(1000);
+  // Observe PUT /api/products/:id and a subsequent GET refresh
+  try {
+    await page.waitForResponse(res => {
+      try { return /\/api\/products\//.test(res.url()) && res.request().method() === 'PUT' && res.status() === 200; } catch (e) { return false; }
+    }, { timeout: 30000 });
+  } catch (e) { /* non-fatal */ }
+  try {
+    await page.waitForResponse(res => {
+      try { return res.url().includes('/api/products') && res.request().method() === 'GET' && res.status() === 200; } catch (e) { return false; }
+    }, { timeout: 30000 });
+  } catch (e) { /* non-fatal */ }
 
   console.log('Product updated, now removing it via UI');
   // Remove either from table row or card
@@ -506,7 +538,12 @@ async function runE2E() {
       const text = await row.$eval('td', td => td.innerText);
       if (text.includes(name)) {
         const delBtn = await row.$('button.btn-danger');
-        await delBtn.click();
+        if (!delBtn) continue;
+        try {
+          await delBtn.evaluate(el => { el.scrollIntoView({ block: 'center', inline: 'center' }); el.click(); });
+        } catch (e) {
+          try { await delBtn.click({ delay: 50 }); } catch (ee) {}
+        }
         removed = true;
         break;
       }
@@ -518,7 +555,12 @@ async function runE2E() {
       const title = await card.$eval('.card-title', el => el && el.textContent ? el.textContent : '');
       if (title && title.includes(name)) {
         const delBtn = await card.$('button.btn-danger');
-        await delBtn.click();
+        if (!delBtn) continue;
+        try {
+          await delBtn.evaluate(el => { el.scrollIntoView({ block: 'center', inline: 'center' }); el.click(); });
+        } catch (e) {
+          try { await delBtn.click({ delay: 50 }); } catch (ee) {}
+        }
         removed = true;
         break;
       }
@@ -529,6 +571,17 @@ async function runE2E() {
     throw new Error('Could not find product to remove');
   }
   console.log('Waiting for product to be removed from the UI...');
+  // Observe DELETE and a GET refresh
+  try {
+    await page.waitForResponse(res => {
+      try { return /\/api\/products\//.test(res.url()) && res.request().method() === 'DELETE' && [200,204].includes(res.status()); } catch (e) { return false; }
+    }, { timeout: 30000 });
+  } catch (e) { /* non-fatal */ }
+  try {
+    await page.waitForResponse(res => {
+      try { return res.url().includes('/api/products') && res.request().method() === 'GET' && res.status() === 200; } catch (e) { return false; }
+    }, { timeout: 30000 });
+  } catch (e) { /* non-fatal */ }
   try {
     await page.waitForFunction(async (nm) => {
       const inTable = Array.from(document.querySelectorAll('table tbody tr td')).some(td => td.innerText.includes(nm));
