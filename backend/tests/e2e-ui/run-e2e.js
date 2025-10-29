@@ -515,9 +515,22 @@ async function runE2E() {
   // Change price and save (prefer modal scope if present)
   const modalVisible = await page.$('.modal.show');
   const scope = modalVisible ? '.modal.show ' : '';
-  const priceInput = await page.$(scope + 'input[placeholder="Preço"]');
-  await priceInput.click({ clickCount: 3 });
-  await priceInput.type('19.9');
+  const priceSelector = scope + 'input[placeholder="Preço"]';
+  await page.waitForSelector(priceSelector, { visible: true, timeout: 10000 });
+  // Avoid ElementHandle.click; clear and set the value via DOM to prevent clickablePoint errors
+  await page.$eval(priceSelector, (el) => {
+    // Ensure in view and focused
+    try { el.scrollIntoView({ block: 'center', inline: 'center' }); } catch (e) {}
+    if (typeof el.focus === 'function') el.focus();
+    // Robust clear + events
+    if (el && el.tagName === 'INPUT') {
+      el.value = '';
+      el.dispatchEvent(new Event('input', { bubbles: true }));
+      el.dispatchEvent(new Event('change', { bubbles: true }));
+    }
+  });
+  // Type desired value to trigger Angular/Bootstrap bindings naturally
+  await page.type(priceSelector, '19.9');
   await page.waitForSelector(scope + 'button.btn-success', { visible: true, timeout: 10000 });
   // Click Save for update robustly
   try {
