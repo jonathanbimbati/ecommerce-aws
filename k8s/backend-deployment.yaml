@@ -53,15 +53,5 @@ spec:
             httpGet:
               path: /api/products
               port: 3000
-            apiVersion: v1
-            kind: Service
-            metadata:
-              name: backend
-              labels:
-                app: backend
-              annotations:
-                # Alias para compatibilidade de DNS internas (ex: http://backend) apontando para o API Gateway via ExternalName.
-                # Ajuste o host abaixo para o endpoint real do API Gateway.
-            spec:
-              type: ExternalName
-              externalName: w3rtebdo58.execute-api.us-east-1.amazonaws.com
+            initialDelaySeconds: 10
+            periodSeconds: 10

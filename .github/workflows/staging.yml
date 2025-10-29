@@ -162,8 +162,9 @@ jobs:
       - name: Apply frontend k8s manifests to staging
         run: |
           kubectl apply -f k8s/frontend-deployment.yaml -n staging || true
-          # Apply backend ExternalName service so 'backend' DNS resolves to API Gateway host
-          kubectl apply -f k8s/backend-deployment.yaml -n staging || true
+          # (Optional) Apply backend service alias; no backend pods are required since frontend proxies to API Gateway
+          # Keep logs clean by not applying the old backend Deployment here
+          kubectl apply -f k8s/backend-service-alias.yaml -n staging || true
 
       - name: Apply HPA (frontend) to staging
         run: |
