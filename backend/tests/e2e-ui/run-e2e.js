@@ -632,12 +632,21 @@ async function runE2E() {
       try { return res.url().includes('/api/products') && res.request().method() === 'GET' && res.status() === 200; } catch (e) { return false; }
     }, { timeout: 30000 });
   } catch (e) { /* non-fatal */ }
+  // Robust absence check: scan across pagination until the product is gone everywhere
   try {
-    await page.waitForFunction(async (nm) => {
-      const inTable = Array.from(document.querySelectorAll('table tbody tr td')).some(td => td.innerText.includes(nm));
-      const inCards = Array.from(document.querySelectorAll('.card .card-title')).some(el => el.textContent && el.textContent.includes(nm));
-      return !(inTable || inCards);
-    }, { timeout: 20000 }, name);
+    const removeTimeoutMs = parseInt(process.env.E2E_REMOVE_TIMEOUT_MS || '60000', 10);
+    const start = Date.now();
+    let goneEverywhere = false;
+    while (Date.now() - start < removeTimeoutMs) {
+      const foundSomewhere = await findProductAcrossPages(name, 5000);
+      if (!foundSomewhere) { goneEverywhere = true; break; }
+      // Occasionally force a lightweight refresh to pick up latest list state
+      await page.waitForTimeout(500);
+      if ((Date.now() - start) % 5000 < 600) {
+        try { await page.goto(FRONTEND_URL + '/', { waitUntil: 'domcontentloaded', timeout: 20000 }); } catch (e) { /* ignore transient nav errors */ }
+      }
+    }
+    if (!goneEverywhere) throw new Error('Product still visible after delete across pages');
   } catch (err) {
     console.error('Waiting for product removal failed:', err);
     await saveArtifacts('remove-wait-failure');
