@@ -60,10 +60,18 @@ export class AuthService {
   }
 
   isAuthenticated(): boolean {
-    return !!localStorage.getItem(this.tokenKey);
+    return !!this.getToken();
   }
 
   getToken(): string | null {
-    return localStorage.getItem(this.tokenKey);
+    const token = localStorage.getItem(this.tokenKey);
+    if (!token) return null;
+    // Accept only JWT-like tokens (three dot-separated segments). Remove legacy stub tokens automatically.
+    const looksJwt = /^[A-Za-z0-9-_]+\.[A-Za-z0-9-_]+\.[A-Za-z0-9-_]+$/.test(token);
+    if (!looksJwt) {
+      localStorage.removeItem(this.tokenKey);
+      return null;
+    }
+    return token;
   }
 }
