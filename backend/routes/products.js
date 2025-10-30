@@ -52,6 +52,8 @@ router.get('/:id', async (req, res) => {
 
 const jwtAuth = require('../middleware/jwtAuth');
 
+// notifications via DynamoDB Stream -> Lambda (ProductsProcessorFunction)
+
 // POST /api/products
 router.post('/', jwtAuth, async (req, res) => {
   const { name, price, description, imageUrl } = req.body || {};
@@ -66,7 +68,7 @@ router.post('/', jwtAuth, async (req, res) => {
       return res.status(201).json(item);
     }
     ensureSeeded();
-    products.set(item.id, item);
+  products.set(item.id, item);
     return res.status(201).json(item);
   } catch (err) {
     console.error('Error creating product:', err);
