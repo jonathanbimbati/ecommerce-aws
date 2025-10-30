@@ -7,7 +7,8 @@ const path = require('path');
 const ARTIFACTS_DIR = path.resolve(__dirname, 'artifacts');
 if (!fs.existsSync(ARTIFACTS_DIR)) fs.mkdirSync(ARTIFACTS_DIR, { recursive: true });
 
-const API_URL = process.env.API_URL || 'https://w3rtebdo58.execute-api.us-east-1.amazonaws.com/prod';
+// Prefer FRONTEND_URL proxy (/api) during tests. API_URL fallback kept with current API id/stage
+const API_URL = process.env.API_URL || 'https://8ckajqmml5.execute-api.us-east-1.amazonaws.com/Prod';
 const FRONTEND_URL = process.env.FRONTEND_URL || 'http://ecommerce-aws-nlb-20d654c0c2efadd3.elb.us-east-1.amazonaws.com';
 
 const TEST_USER = { username: 'testUI', password: 'testUI', name: 'Test UI' };

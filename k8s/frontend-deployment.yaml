@@ -45,7 +45,7 @@ spec:
           imagePullPolicy: Always
           env:
             - name: API_URL
-              value: "https://w3rtebdo58.execute-api.us-east-1.amazonaws.com/prod"
+              value: ""
           ports:
             - containerPort: 80
           readinessProbe:
