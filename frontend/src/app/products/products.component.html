@@ -1,8 +1,13 @@
 <div class="d-flex justify-content-between align-items-center mb-3">
   <h4 class="mb-0">Produtos</h4>
-  <button class="btn btn-primary" (click)="newProduct()" data-bs-toggle="modal" [attr.data-bs-target]="'#' + formModalId">
-    Novo produto
-  </button>
+  <div class="d-flex align-items-center gap-2">
+    <button class="btn btn-primary" (click)="newProduct()" data-bs-toggle="modal" [attr.data-bs-target]="'#' + formModalId">
+      Novo produto
+    </button>
+    <button class="btn btn-outline-secondary" (click)="logout()" title="Sair">
+      Sair
+    </button>
+  </div>
   
 </div>
 

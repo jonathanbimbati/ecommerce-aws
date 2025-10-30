@@ -2,6 +2,8 @@ import { Component, OnInit } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
 import { ProductService } from '../services/product.service';
+import { AuthService } from '../auth.service';
+import { Router } from '@angular/router';
 
 @Component({
   selector: 'app-products',
@@ -26,7 +28,7 @@ export class ProductsComponent implements OnInit {
   pageSize = 8;
   currentPage = 1;
 
-  constructor(private service: ProductService) {}
+  constructor(private service: ProductService, private auth: AuthService, private router: Router) {}
 
   ngOnInit() {
     this.load();
@@ -37,6 +39,11 @@ export class ProductsComponent implements OnInit {
     // Reset pagination if current page exceeds length
     const totalPages = this.totalPages;
     if (this.currentPage > totalPages) this.currentPage = totalPages || 1;
+  }
+
+  logout() {
+    this.auth.logout();
+    try { this.router.navigate(['/login']); } catch {}
   }
 
   async save() {
