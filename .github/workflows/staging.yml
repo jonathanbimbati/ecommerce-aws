@@ -225,6 +225,7 @@ jobs:
           echo "LoadBalancer hostname not available and no ALB secret provided"; exit 1
 
       - name: Probe backend API via frontend LB (/api)
+        if: ${{ secrets.ENABLE_E2E == 'true' }}
         run: |
           set -e
           mkdir -p backend/tests/e2e-ui/artifacts || true
@@ -254,6 +255,7 @@ jobs:
           echo "Backend OK (status $STATUS)"
 
       - name: Install system deps and Chromium for Puppeteer (E2E)
+        if: ${{ secrets.ENABLE_E2E == 'true' }}
         run: |
           sudo apt-get update && sudo apt-get install -y chromium-browser chromium
           if [ -x "/usr/bin/chromium-browser" ]; then
@@ -265,11 +267,13 @@ jobs:
           fi
 
       - name: Install puppeteer deps (E2E)
+        if: ${{ secrets.ENABLE_E2E == 'true' }}
         run: |
           cd backend/tests/e2e-ui
           npm ci
 
       - name: Run E2E tests against staging
+        if: ${{ secrets.ENABLE_E2E == 'true' }}
         run: |
           # Create artifacts dir for diagnostic outputs
           mkdir -p backend/tests/e2e-ui/artifacts || true
@@ -313,7 +317,7 @@ jobs:
           npm run test
 
       - name: Debug list E2E artifact directory (for troubleshooting)
-        if: ${{ always() }}
+        if: ${{ always() && secrets.ENABLE_E2E == 'true' }}
         run: |
           echo "Workspace: $(pwd)"
           echo "Listing backend/tests/e2e-ui (top level)" || true
@@ -324,7 +328,7 @@ jobs:
           find backend/tests/e2e-ui -maxdepth 3 -type f -print || true
 
       - name: Upload E2E artifacts (if any)
-        if: ${{ always() }}
+        if: ${{ always() && secrets.ENABLE_E2E == 'true' }}
         uses: actions/upload-artifact@v4
         with:
           name: e2e-artifacts

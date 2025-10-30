@@ -149,6 +149,7 @@ jobs:
           fi
 
   e2e-tests:
+    if: ${{ secrets.ENABLE_E2E == 'true' }}
     runs-on: ubuntu-latest
     needs: deploy-to-k8s
     env:

@@ -11,7 +11,13 @@ if (!fs.existsSync(ARTIFACTS_DIR)) fs.mkdirSync(ARTIFACTS_DIR, { recursive: true
 const API_URL = process.env.API_URL || 'https://8ckajqmml5.execute-api.us-east-1.amazonaws.com/Prod';
 const FRONTEND_URL = process.env.FRONTEND_URL || 'http://ecommerce-aws-nlb-20d654c0c2efadd3.elb.us-east-1.amazonaws.com';
 
-const TEST_USER = { username: 'testUI', password: 'testUI', name: 'Test UI' };
+// Use a unique username per run to avoid 409 conflicts with stale credentials from prior runs
+function genUsername() {
+  const base = process.env.E2E_USER_PREFIX || 'testUI';
+  const runId = process.env.GITHUB_RUN_ID || String(Math.floor(Date.now() / 1000));
+  return `${base}-${runId}`;
+}
+const TEST_USER = { username: genUsername(), password: process.env.E2E_USER_PASSWORD || 'testUI', name: 'Test UI' };
 
 async function registerUser() {
   console.log('Registering user via frontend backend proxy...');
@@ -20,11 +26,13 @@ async function registerUser() {
     body: JSON.stringify({ username: TEST_USER.username, password: TEST_USER.password, name: TEST_USER.name })
   });
   if (res.status === 201 || res.status === 200) {
-    console.log('User registered (or already exists)');
+    console.log('User registered');
+    try { fs.writeFileSync(path.join(ARTIFACTS_DIR, 'e2e-user.txt'), `${TEST_USER.username}`); } catch (e) {}
     return true;
   }
   if (res.status === 409) {
     console.log('User already exists, continuing');
+    try { fs.writeFileSync(path.join(ARTIFACTS_DIR, 'e2e-user.txt'), `${TEST_USER.username}`); } catch (e) {}
     return true;
   }
   const txt = await res.text();
