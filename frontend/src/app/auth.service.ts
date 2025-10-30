@@ -20,21 +20,23 @@ export class AuthService {
         return true;
       }
     } catch (err) {
-      // fallback to local stub ONLY for network errors (status === 0)
-      // if backend returned 401/4xx we must NOT accept credentials locally
+      // Fallback to a local stub ONLY in local dev (localhost) or when explicitly enabled.
+      // Never use stub tokens in deployed environments — they will fail authenticated API calls.
       const status = err && (err as any).status;
-      if (status === 0) {
-        console.warn('Backend unreachable, falling back to local stub', err);
+      const allowEnv = (window as any)?.__env?.ALLOW_LOGIN_FALLBACK === true;
+      const isLocalhost = typeof location !== 'undefined' && ['localhost', '127.0.0.1'].includes(location.hostname);
+      const allowFallback = (status === 0) && (allowEnv || isLocalhost);
+      if (allowFallback) {
+        console.warn('Backend unreachable in dev, falling back to local stub', err);
         if (username && password) {
           const token = btoa(`${username}:${password}`);
           localStorage.setItem(this.tokenKey, token);
           return true;
         }
-      } else {
-        // backend returned a real response (e.g. 401) — do not fallback
-        console.warn('Backend login failed with status', status);
-        return false;
       }
+      // backend returned a real response (e.g. 401) or we are not in dev — do not fallback
+      console.warn('Backend login failed or fallback disabled. Status:', status);
+      return false;
     }
     return false;
   }
