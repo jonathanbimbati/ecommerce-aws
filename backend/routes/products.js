@@ -54,11 +54,12 @@ const jwtAuth = require('../middleware/jwtAuth');
 
 // POST /api/products
 router.post('/', jwtAuth, async (req, res) => {
-  const { name, price, description, imageUrl } = req.body;
-  if (!name || typeof price !== 'number') {
+  const { name, price, description, imageUrl } = req.body || {};
+  const priceNum = (price === undefined || price === null || price === '') ? NaN : Number(price);
+  if (!name || !Number.isFinite(priceNum)) {
     return res.status(400).json({ error: 'Invalid payload: name and numeric price required' });
   }
-  const item = { id: uuidv4(), name, price, description: description || '', imageUrl: imageUrl || '' };
+  const item = { id: uuidv4(), name, price: priceNum, description: description || '', imageUrl: imageUrl || '' };
   try {
     if (process.env.DYNAMODB_TABLE) {
       await db.createProduct(item);
@@ -79,6 +80,11 @@ router.put('/:id', jwtAuth, async (req, res) => {
   const allowed = ['name', 'price', 'description', 'imageUrl'];
   for (const key of allowed) {
     if (req.body[key] !== undefined) updates[key] = req.body[key];
+  }
+  if (updates.price !== undefined) {
+    const priceNum = (updates.price === '' || updates.price === null) ? NaN : Number(updates.price);
+    if (!Number.isFinite(priceNum)) return res.status(400).json({ error: 'Invalid price' });
+    updates.price = priceNum;
   }
   if (Object.keys(updates).length === 0) return res.status(400).json({ error: 'No valid fields provided for update' });
   try {
