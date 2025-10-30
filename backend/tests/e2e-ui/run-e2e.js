@@ -294,11 +294,20 @@ async function runE2E() {
     // wait for an auth token to appear in localStorage or for a UI element from
     // the home/products view to be visible.
     await page.click('button[type="submit"]');
-    // Wait until token present or products UI visible
-    await Promise.race([
-      page.waitForFunction(() => !!localStorage.getItem('ecom_token'), { timeout: 30000 }),
-      page.waitForSelector('h4, .card, nav .pagination', { timeout: 30000 }).catch(() => null)
+    // Also watch the network for a successful backend response to POST /api/auth/login
+    const loginRespPromise = page.waitForResponse(res => {
+      try { return res.url().includes('/api/auth/login') && res.request().method() === 'POST'; } catch (e) { return false; }
+    }, { timeout: 30000 }).catch(() => null);
+    // Wait until token present, products UI visible, or backend responded 2xx to login
+    const winner = await Promise.race([
+      page.waitForFunction(() => !!localStorage.getItem('ecom_token'), { timeout: 30000 }).then(() => 'token'),
+      page.waitForSelector('h4, .card, nav .pagination', { timeout: 30000 }).then(() => 'ui').catch(() => null),
+      loginRespPromise.then(r => (r && r.status && r.status() >= 200 && r.status() < 300) ? 'resp2xx' : (r ? `resp${r.status()}` : null))
     ]);
+    if (!winner) throw new Error('Login did not complete');
+    if (String(winner).startsWith('resp') && winner !== 'resp2xx') {
+      throw new Error(`Backend login returned non-2xx (${winner})`);
+    }
   } catch (err) {
     console.error('Login flow failed:', err);
     await saveArtifacts('login-flow-failure');

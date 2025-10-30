@@ -224,26 +224,23 @@ jobs:
           done
           echo "LoadBalancer hostname not available and no ALB secret provided"; exit 1
 
-      - name: Probe backend API (API Gateway integration)
+      - name: Probe backend API via frontend LB (/api)
         run: |
+          set -e
           mkdir -p backend/tests/e2e-ui/artifacts || true
-          echo "Reading API_URL from frontend deployment env..."
-          API_URL=$(kubectl get deploy ecommerce-frontend -n staging -o jsonpath='{.spec.template.spec.containers[?(@.name=="frontend")].env[?(@.name=="API_URL")].value}')
-          echo "API_URL: $API_URL" | tee backend/tests/e2e-ui/artifacts/backend-probe-url.txt
-          if [ -z "$API_URL" ]; then
-            echo "API_URL vazio no deployment; não é possível sondar backend" | tee backend/tests/e2e-ui/artifacts/backend-probe-error.txt
+          if [ -z "$FRONTEND_HOST" ]; then
+            echo "FRONTEND_HOST ausente; não é possível sondar backend" | tee backend/tests/e2e-ui/artifacts/backend-probe-error.txt
             exit 1
           fi
-
-          PROBE_URL="$API_URL/api/products"
+          PROBE_URL="http://$FRONTEND_HOST/api/products"
+          echo "$PROBE_URL" > backend/tests/e2e-ui/artifacts/backend-probe-url.txt
           echo "Probing: $PROBE_URL"
           set -o pipefail
-          curl -sv --connect-timeout 5 --max-time 15 "$PROBE_URL" \
+          curl -sv --connect-timeout 8 --max-time 20 "$PROBE_URL" \
             -o backend/tests/e2e-ui/artifacts/backend-probe-body.json \
             -D backend/tests/e2e-ui/artifacts/backend-probe-headers.txt \
             2> backend/tests/e2e-ui/artifacts/backend-probe-curl.txt || PROBE_RC=$?
 
-          # Extract HTTP status code
           STATUS=$(awk 'toupper($1) ~ /^HTTP\// {code=$2} END{print code+0}' backend/tests/e2e-ui/artifacts/backend-probe-headers.txt 2>/dev/null || echo 0)
           echo "HTTP STATUS: $STATUS" | tee -a backend/tests/e2e-ui/artifacts/backend-probe-headers.txt
           if [ -n "$PROBE_RC" ]; then
