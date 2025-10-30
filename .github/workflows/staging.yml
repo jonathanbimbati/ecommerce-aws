@@ -160,11 +160,16 @@ jobs:
         run: |
           kubectl get namespace staging || kubectl create namespace staging
 
-      - name: Apply frontend k8s manifests to staging
+      - name: Apply k8s manifests to staging (frontend + backend)
         run: |
+          # Frontend deployment and service (LoadBalancer)
           kubectl apply -f k8s/frontend-deployment.yaml -n staging || true
-          # (Optional) Apply backend service alias; no backend pods are required since frontend proxies to API Gateway
-          # Keep logs clean by not applying the old backend Deployment here
+          # Backend Service and Deployment so Nginx can proxy /api to in-cluster backend
+          kubectl apply -f k8s/backend-deployment.yaml -n staging || true
+          # ServiceAccount and JWT secret used by backend
+          kubectl apply -f k8s/service-account.yaml -n staging || true
+          kubectl apply -f k8s/secret-jwt.yaml -n staging || true
+          # Optional legacy alias Service named "backend" (selects app=ecommerce-backend)
           kubectl apply -f k8s/backend-service-alias.yaml -n staging || true
 
       - name: Apply HPA (frontend) to staging
