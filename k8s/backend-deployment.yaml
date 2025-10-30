@@ -45,6 +45,11 @@ spec:
               value: us-east-1
             - name: DYNAMODB_TABLE
               value: "ecommerce-aws-Products"
+            - name: JWT_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: jwt-secret
+                  key: JWT_SECRET
             - name: AWS_WEB_IDENTITY_TOKEN_FILE
               value: /var/run/secrets/eks.amazonaws.com/serviceaccount/token
             - name: AWS_ROLE_ARN
