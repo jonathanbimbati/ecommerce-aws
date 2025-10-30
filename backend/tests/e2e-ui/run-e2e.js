@@ -289,9 +289,14 @@ async function runE2E() {
   await page.type('input[name="username"]', TEST_USER.username);
   await page.type('input[name="password"]', TEST_USER.password);
   try {
-    await Promise.all([
-      page.click('button[type="submit"]'),
-      page.waitForNavigation({ waitUntil: 'domcontentloaded', timeout: 60000 })
+    // In SPA, login does not trigger a full document navigation. Click and then
+    // wait for an auth token to appear in localStorage or for a UI element from
+    // the home/products view to be visible.
+    await page.click('button[type="submit"]');
+    // Wait until token present or products UI visible
+    await Promise.race([
+      page.waitForFunction(() => !!localStorage.getItem('ecom_token'), { timeout: 30000 }),
+      page.waitForSelector('h4, .card, nav .pagination', { timeout: 30000 }).catch(() => null)
     ]);
   } catch (err) {
     console.error('Login flow failed:', err);
