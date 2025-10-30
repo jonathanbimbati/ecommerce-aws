@@ -7,7 +7,9 @@ mkdir -p "$CONFIG_DIR"
 cat > "$CONFIG_DIR/env.js" <<EOF
 window.__env = {
   API_URL: "${API_URL:-}",
-  ALLOW_LOGIN_FALLBACK: ${ALLOW_LOGIN_FALLBACK:-false}
+  ALLOW_LOGIN_FALLBACK: ${ALLOW_LOGIN_FALLBACK:-false},
+  // Feature flag: enable uploads UI only when explicitly true
+  UPLOADS_ENABLED: ${UPLOADS_ENABLED:-false}
 };
 EOF
 

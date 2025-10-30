@@ -65,9 +65,12 @@
         <div class="mb-2">
           <label class="form-label">Imagem (URL)</label>
           <input [(ngModel)]="model.imageUrl" class="form-control" placeholder="https://...">
-          <div class="form-text">Você pode colar um URL ou enviar um arquivo abaixo (upload direto para S3).</div>
+          <div class="form-text" *ngIf="uploadsEnabled; else noUploadInfo">Você pode colar um URL ou enviar um arquivo abaixo (upload direto para S3).</div>
+          <ng-template #noUploadInfo>
+            <div class="form-text text-warning">Uploads desativados neste ambiente. Informe apenas um URL público opcional.</div>
+          </ng-template>
         </div>
-        <div class="mb-2">
+        <div class="mb-2" *ngIf="uploadsEnabled">
           <label class="form-label">Upload de imagem</label>
           <input type="file" class="form-control" (change)="onFileSelected($event)" accept="image/*">
           <div *ngIf="pendingUpload.uploading" class="form-text">Enviando...</div>

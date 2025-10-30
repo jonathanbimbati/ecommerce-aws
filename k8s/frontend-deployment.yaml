@@ -46,6 +46,8 @@ spec:
           env:
             - name: API_URL
               value: ""
+            - name: UPLOADS_ENABLED
+              value: "false"
           ports:
             - containerPort: 80
           readinessProbe:

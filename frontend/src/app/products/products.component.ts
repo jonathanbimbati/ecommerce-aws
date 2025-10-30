@@ -16,6 +16,8 @@ export class ProductsComponent implements OnInit {
   pendingUpload: { file?: File, uploading: boolean, error?: string, progress?: number } = { uploading: false };
   readonly MAX_MB = 5;
   readonly ALLOWED_TYPES = ['image/png', 'image/jpeg'];
+  // Uploads UI is feature-flagged via runtime env (disabled by default)
+  uploadsEnabled: boolean = !!((window as any)?.__env && (window as any).__env.UPLOADS_ENABLED === true);
   // Modal state
   private bootstrap: any = (window as any)['bootstrap'];
   formModalId = 'productModal';
@@ -67,6 +69,10 @@ export class ProductsComponent implements OnInit {
   }
 
   async onFileSelected(evt: any) {
+    if (!this.uploadsEnabled) {
+      this.pendingUpload = { uploading: false, error: 'Upload desativado neste ambiente.' } as any;
+      return;
+    }
     const file: File | undefined = evt?.target?.files?.[0];
     this.pendingUpload = { file, uploading: false, error: undefined, progress: 0 };
     if (!file) return;
