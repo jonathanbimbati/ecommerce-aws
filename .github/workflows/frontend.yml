@@ -9,6 +9,8 @@ env:
   AWS_REGION: ${{ secrets.AWS_REGION }}
   # Compose an image tag unique per workflow run to avoid immutable-tag overwrite
   IMAGE_TAG: ${{ github.sha }}-${{ github.run_id }}
+  # Gate to enable/disable E2E; defaults to empty/false if secret not set
+  ENABLE_E2E: ${{ secrets.ENABLE_E2E }}
 
 jobs:
   build-and-push:
@@ -149,7 +151,7 @@ jobs:
           fi
 
   e2e-tests:
-    if: ${{ secrets.ENABLE_E2E == 'true' }}
+    if: ${{ env.ENABLE_E2E == 'true' }}
     runs-on: ubuntu-latest
     needs: deploy-to-k8s
     env:
