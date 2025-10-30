@@ -121,44 +121,62 @@ jobs:
           echo "Using KUBECONFIG=$KUBECONFIG"
           kubectl version --client
 
-      - name: Ensure staging namespace exists
+      - name: Determine target namespace
         run: |
-          kubectl get namespace staging || kubectl create namespace staging
+          if [ -n "${{ secrets.FRONTEND_NAMESPACE }}" ]; then
+            echo "TARGET_NAMESPACE=${{ secrets.FRONTEND_NAMESPACE }}" >> $GITHUB_ENV
+            echo "Using namespace from secret FRONTEND_NAMESPACE: ${{ secrets.FRONTEND_NAMESPACE }}"
+          elif [ -n "${{ secrets.FRONTEND_ALB_HOSTNAME }}" ]; then
+            # If a fixed ALB is provided, default to 'default' unless explicitly overridden
+            echo "TARGET_NAMESPACE=default" >> $GITHUB_ENV
+            echo "Using default namespace because FRONTEND_ALB_HOSTNAME is set"
+          else
+            echo "TARGET_NAMESPACE=staging" >> $GITHUB_ENV
+            echo "No fixed ALB provided; defaulting namespace to 'staging'"
+          fi
 
-      - name: Apply manifests to staging (frontend + backend)
+      - name: Ensure target namespace exists (skip for default)
         run: |
-          kubectl apply -f k8s/frontend-deployment.yaml -n staging || true
-          kubectl apply -f k8s/backend-deployment.yaml -n staging || true
-          kubectl apply -f k8s/service-account.yaml -n staging || true
-          kubectl apply -f k8s/secret-jwt.yaml -n staging || true
-          kubectl apply -f k8s/frontend-hpa.yaml -n staging || true
+          if [ "$TARGET_NAMESPACE" != "default" ]; then
+            kubectl get namespace "$TARGET_NAMESPACE" || kubectl create namespace "$TARGET_NAMESPACE"
+          else
+            echo "Namespace 'default' assumed to exist; skipping creation"
+          fi
 
-      - name: Replace deployment image with new sha tag (staging)
+      - name: Apply manifests to target namespace (frontend + backend)
+        run: |
+          kubectl apply -f k8s/frontend-deployment.yaml -n "$TARGET_NAMESPACE" || true
+          kubectl apply -f k8s/backend-deployment.yaml -n "$TARGET_NAMESPACE" || true
+          kubectl apply -f k8s/service-account.yaml -n "$TARGET_NAMESPACE" || true
+          kubectl apply -f k8s/secret-jwt.yaml -n "$TARGET_NAMESPACE" || true
+          kubectl apply -f k8s/frontend-hpa.yaml -n "$TARGET_NAMESPACE" || true
+
+      - name: Replace deployment image with new sha tag (target namespace)
         run: |
           set -euo pipefail
           ACCOUNT_ID=$(aws sts get-caller-identity --query Account --output text)
           ECR_URI=${ACCOUNT_ID}.dkr.ecr.${{ env.AWS_REGION }}.amazonaws.com/ecommerce-ecr-frontend:${IMAGE_TAG}
 
           # Temporarily scale to 1 replica to avoid scheduling/IP exhaustion issues during rollout
-          CURRENT_REPLICAS=$(kubectl get deployment ecommerce-frontend -n staging -o jsonpath='{.spec.replicas}' 2>/dev/null || echo "2")
+          CURRENT_REPLICAS=$(kubectl get deployment ecommerce-frontend -n "$TARGET_NAMESPACE" -o jsonpath='{.spec.replicas}' 2>/dev/null || echo "2")
           echo "Current replicas: ${CURRENT_REPLICAS}"
           if [ -z "${CURRENT_REPLICAS}" ]; then CURRENT_REPLICAS=2; fi
           if [ "${CURRENT_REPLICAS}" -gt 1 ]; then
             echo "Scaling down ecommerce-frontend to 1 replica for rollout"
-            kubectl scale deployment ecommerce-frontend -n staging --replicas=1 || true
-            kubectl rollout status deployment/ecommerce-frontend -n staging --timeout=120s || true
+            kubectl scale deployment ecommerce-frontend -n "$TARGET_NAMESPACE" --replicas=1 || true
+            kubectl rollout status deployment/ecommerce-frontend -n "$TARGET_NAMESPACE" --timeout=120s || true
           fi
 
           echo "Updating image to ${ECR_URI}"
-          kubectl set image deployment/ecommerce-frontend -n staging frontend=$ECR_URI --record
-          kubectl rollout restart deployment/ecommerce-frontend -n staging || true
-          kubectl rollout status deployment/ecommerce-frontend -n staging --timeout=180s || true
+          kubectl set image deployment/ecommerce-frontend -n "$TARGET_NAMESPACE" frontend=$ECR_URI --record
+          kubectl rollout restart deployment/ecommerce-frontend -n "$TARGET_NAMESPACE" || true
+          kubectl rollout status deployment/ecommerce-frontend -n "$TARGET_NAMESPACE" --timeout=180s || true
 
           # Restore original replica count if it was > 1
           if [ "${CURRENT_REPLICAS}" -gt 1 ]; then
             echo "Restoring ecommerce-frontend replicas to ${CURRENT_REPLICAS}"
-            kubectl scale deployment ecommerce-frontend -n staging --replicas=${CURRENT_REPLICAS} || true
-            kubectl rollout status deployment/ecommerce-frontend -n staging --timeout=180s || true
+            kubectl scale deployment ecommerce-frontend -n "$TARGET_NAMESPACE" --replicas=${CURRENT_REPLICAS} || true
+            kubectl rollout status deployment/ecommerce-frontend -n "$TARGET_NAMESPACE" --timeout=180s || true
           fi
 
   e2e-tests:
@@ -217,7 +235,20 @@ jobs:
           aws eks update-kubeconfig --name "${{ env.EKS_CLUSTER_NAME }}" --region ${{ env.AWS_REGION }}
           echo "KUBECONFIG=$HOME/.kube/config" >> $GITHUB_ENV
 
-      - name: Resolve frontend URL (prefer fixed ALB; fallback to Service LB)
+      - name: Determine target namespace for E2E
+        run: |
+          if [ -n "${{ secrets.FRONTEND_NAMESPACE }}" ]; then
+            echo "TARGET_NAMESPACE=${{ secrets.FRONTEND_NAMESPACE }}" >> $GITHUB_ENV
+            echo "E2E using namespace from secret FRONTEND_NAMESPACE: ${{ secrets.FRONTEND_NAMESPACE }}"
+          elif [ -n "${{ secrets.FRONTEND_ALB_HOSTNAME }}" ]; then
+            echo "TARGET_NAMESPACE=default" >> $GITHUB_ENV
+            echo "E2E defaulting namespace to 'default' because FRONTEND_ALB_HOSTNAME is set"
+          else
+            echo "TARGET_NAMESPACE=staging" >> $GITHUB_ENV
+            echo "E2E defaulting namespace to 'staging' (no fixed ALB)"
+          fi
+
+      - name: Resolve frontend URL (prefer fixed ALB; fallback to Service LB in target namespace)
         run: |
           set -e
           # 1) Prefer an explicit ALB hostname provided via repository secret FRONTEND_ALB_HOSTNAME
@@ -227,11 +258,11 @@ jobs:
             exit 0
           fi
 
-          # 2) Fallback: try to resolve a LoadBalancer Service in default or staging namespaces
-          echo "No FRONTEND_ALB_HOSTNAME secret set; attempting to resolve Service LoadBalancer hostname"
+          # 2) Fallback: try to resolve a LoadBalancer Service in the target namespace
+          echo "No FRONTEND_ALB_HOSTNAME secret set; attempting to resolve Service LoadBalancer hostname in namespace $TARGET_NAMESPACE"
           for i in {1..20}; do
             if [ -z "$HOST" ]; then
-              HOST=$(kubectl get svc ecommerce-frontend -n staging -o jsonpath='{.status.loadBalancer.ingress[0].hostname}' 2>/dev/null || true)
+              HOST=$(kubectl get svc ecommerce-frontend -n "$TARGET_NAMESPACE" -o jsonpath='{.status.loadBalancer.ingress[0].hostname}' 2>/dev/null || true)
             fi
             if [ -n "$HOST" ]; then
               echo "Found LB host: $HOST"; echo "FRONTEND_URL=http://$HOST" >> $GITHUB_ENV; exit 0
