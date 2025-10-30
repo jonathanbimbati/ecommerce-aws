@@ -10,12 +10,12 @@
 <div class="row row-cols-1 row-cols-sm-2 row-cols-md-3 row-cols-lg-4 g-3">
   <div class="col" *ngFor="let p of paginated">
     <div class="card h-100 shadow-sm">
-  <img *ngIf="p.imageUrl" [src]="p.imageUrl" class="card-img-top product-card-img" alt="{{p.name}}">
-      <div class="card-body d-flex flex-column">
+      <img *ngIf="p.imageUrl" [src]="p.imageUrl" class="card-img-top product-card-img" alt="{{p.name}}">
+      <div class="card-body d-flex flex-column product-card-body">
         <h5 class="card-title">{{ p.name }}</h5>
         <h6 class="card-subtitle mb-2 text-muted">{{ p.price | currency:'BRL' }}</h6>
-        <p class="card-text" style="flex:1 1 auto; max-height: 4.5em; overflow: hidden;">{{ p.description }}</p>
-        <div class="mt-2">
+        <p class="card-text product-card-desc">{{ p.description }}</p>
+        <div class="mt-2 product-card-actions">
           <button class="btn btn-sm btn-outline-secondary me-2" (click)="openDetails(p)" data-bs-toggle="modal" [attr.data-bs-target]="'#' + detailsModalId">Detalhes</button>
           <button class="btn btn-sm btn-primary me-2" (click)="edit(p)" data-bs-toggle="modal" [attr.data-bs-target]="'#' + formModalId">Editar</button>
           <button class="btn btn-sm btn-danger" (click)="remove(p.id)">Remover</button>

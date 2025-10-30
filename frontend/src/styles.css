@@ -1,8 +1,27 @@
-/* Fixed size for product images inside cards */
+/* Fixed-size image area in cards: smaller, non-cropping (contain) */
 .product-card-img {
 	width: 100%;
-	height: 180px;
-	object-fit: cover;
+	height: 140px;              /* menor que antes para reduzir o destaque visual */
+	object-fit: contain;        /* não corta a imagem; ajusta com letterbox se necessário */
 	object-position: center center;
+	display: block;
+	background-color: #f8f9fa;  /* fundo claro para áreas vazias ao usar contain */
+}
+/* Fixar altura visual do conteúdo do card e truncar descrição */
+.product-card-body {
+	display: flex;
+	flex-direction: column;
+	min-height: 220px; /* ajusta a altura total do card; aumente/diminua conforme necessário */
+}
+.product-card-desc {
+	flex: 1 1 auto;
+	overflow: hidden;
+	display: -webkit-box;
+	-webkit-line-clamp: 3; /* até ~3 linhas */
+	line-clamp: 3; /* propriedade padrão quando suportada */
+	-webkit-box-orient: vertical;
+}
+.product-card-actions {
+	margin-top: auto; /* empurra os botões para a base do card */
 }
 body { padding-top: 1rem; }
