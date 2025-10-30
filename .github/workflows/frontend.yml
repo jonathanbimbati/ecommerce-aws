@@ -126,13 +126,10 @@ jobs:
           if [ -n "${{ secrets.FRONTEND_NAMESPACE }}" ]; then
             echo "TARGET_NAMESPACE=${{ secrets.FRONTEND_NAMESPACE }}" >> $GITHUB_ENV
             echo "Using namespace from secret FRONTEND_NAMESPACE: ${{ secrets.FRONTEND_NAMESPACE }}"
-          elif [ -n "${{ secrets.FRONTEND_ALB_HOSTNAME }}" ]; then
-            # If a fixed ALB is provided, default to 'default' unless explicitly overridden
-            echo "TARGET_NAMESPACE=default" >> $GITHUB_ENV
-            echo "Using default namespace because FRONTEND_ALB_HOSTNAME is set"
           else
+            # Default to 'staging' to keep frontend and backend aligned unless explicitly overridden
             echo "TARGET_NAMESPACE=staging" >> $GITHUB_ENV
-            echo "No fixed ALB provided; defaulting namespace to 'staging'"
+            echo "Defaulting namespace to 'staging' (set FRONTEND_NAMESPACE to override)"
           fi
 
       - name: Ensure target namespace exists (skip for default)
@@ -150,6 +147,17 @@ jobs:
           kubectl apply -f k8s/service-account.yaml -n "$TARGET_NAMESPACE" || true
           kubectl apply -f k8s/secret-jwt.yaml -n "$TARGET_NAMESPACE" || true
           kubectl apply -f k8s/frontend-hpa.yaml -n "$TARGET_NAMESPACE" || true
+
+      - name: Wait backend rollout in target namespace
+        run: |
+          set -e
+          echo "Waiting for ecommerce-backend rollout in namespace $TARGET_NAMESPACE"
+          kubectl rollout status deployment/ecommerce-backend -n "$TARGET_NAMESPACE" --timeout=240s || (
+            echo "Backend did not become ready in time; dumping describe and pods" &&
+            kubectl describe deployment/ecommerce-backend -n "$TARGET_NAMESPACE" || true &&
+            kubectl get pods -n "$TARGET_NAMESPACE" -l app=ecommerce-backend -o wide || true &&
+            exit 1
+          )
 
       - name: Replace deployment image with new sha tag (target namespace)
         run: |

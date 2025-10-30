@@ -68,6 +68,7 @@ async function updateProduct(id, updates) {
   const updateExpression = 'SET ' + expressions.join(', ');
   const TABLE_NAME = process.env.DYNAMODB_TABLE;
   const cmd = new UpdateCommand({
+    TableName: TABLE_NAME,
     Key: { id },
     UpdateExpression: updateExpression,
     ExpressionAttributeNames: exprAttrNames,
