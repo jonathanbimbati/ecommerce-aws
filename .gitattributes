@@ -1,0 +1,2 @@
+# Exclude specific files from source archives (e.g., GitHub Download ZIP)
+docs/challenge-coverage.md export-ignore
