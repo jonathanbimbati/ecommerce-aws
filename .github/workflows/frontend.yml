@@ -121,32 +121,44 @@ jobs:
           echo "Using KUBECONFIG=$KUBECONFIG"
           kubectl version --client
 
-      - name: Replace deployment image with new sha tag
+      - name: Ensure staging namespace exists
+        run: |
+          kubectl get namespace staging || kubectl create namespace staging
+
+      - name: Apply manifests to staging (frontend + backend)
+        run: |
+          kubectl apply -f k8s/frontend-deployment.yaml -n staging || true
+          kubectl apply -f k8s/backend-deployment.yaml -n staging || true
+          kubectl apply -f k8s/service-account.yaml -n staging || true
+          kubectl apply -f k8s/secret-jwt.yaml -n staging || true
+          kubectl apply -f k8s/frontend-hpa.yaml -n staging || true
+
+      - name: Replace deployment image with new sha tag (staging)
         run: |
           set -euo pipefail
           ACCOUNT_ID=$(aws sts get-caller-identity --query Account --output text)
           ECR_URI=${ACCOUNT_ID}.dkr.ecr.${{ env.AWS_REGION }}.amazonaws.com/ecommerce-ecr-frontend:${IMAGE_TAG}
 
           # Temporarily scale to 1 replica to avoid scheduling/IP exhaustion issues during rollout
-          CURRENT_REPLICAS=$(kubectl get deployment ecommerce-frontend -o jsonpath='{.spec.replicas}' 2>/dev/null || echo "2")
+          CURRENT_REPLICAS=$(kubectl get deployment ecommerce-frontend -n staging -o jsonpath='{.spec.replicas}' 2>/dev/null || echo "2")
           echo "Current replicas: ${CURRENT_REPLICAS}"
           if [ -z "${CURRENT_REPLICAS}" ]; then CURRENT_REPLICAS=2; fi
           if [ "${CURRENT_REPLICAS}" -gt 1 ]; then
             echo "Scaling down ecommerce-frontend to 1 replica for rollout"
-            kubectl scale deployment ecommerce-frontend --replicas=1 || true
-            kubectl rollout status deployment/ecommerce-frontend --timeout=120s || true
+            kubectl scale deployment ecommerce-frontend -n staging --replicas=1 || true
+            kubectl rollout status deployment/ecommerce-frontend -n staging --timeout=120s || true
           fi
 
           echo "Updating image to ${ECR_URI}"
-          kubectl set image deployment/ecommerce-frontend frontend=$ECR_URI --record
-          kubectl rollout restart deployment/ecommerce-frontend || true
-          kubectl rollout status deployment/ecommerce-frontend --timeout=180s || true
+          kubectl set image deployment/ecommerce-frontend -n staging frontend=$ECR_URI --record
+          kubectl rollout restart deployment/ecommerce-frontend -n staging || true
+          kubectl rollout status deployment/ecommerce-frontend -n staging --timeout=180s || true
 
           # Restore original replica count if it was > 1
           if [ "${CURRENT_REPLICAS}" -gt 1 ]; then
             echo "Restoring ecommerce-frontend replicas to ${CURRENT_REPLICAS}"
-            kubectl scale deployment ecommerce-frontend --replicas=${CURRENT_REPLICAS} || true
-            kubectl rollout status deployment/ecommerce-frontend --timeout=180s || true
+            kubectl scale deployment ecommerce-frontend -n staging --replicas=${CURRENT_REPLICAS} || true
+            kubectl rollout status deployment/ecommerce-frontend -n staging --timeout=180s || true
           fi
 
   e2e-tests:
