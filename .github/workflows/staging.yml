@@ -172,6 +172,26 @@ jobs:
           # Optional legacy alias Service named "backend" (selects app=ecommerce-backend)
           kubectl apply -f k8s/backend-service-alias.yaml -n staging || true
 
+      - name: Ensure backend image tag in staging (use :latest)
+        run: |
+          set -euo pipefail
+          ACCOUNT_ID=$(aws sts get-caller-identity --query Account --output text)
+          ECR_URI=${ACCOUNT_ID}.dkr.ecr.${{ env.AWS_REGION }}.amazonaws.com/ecommerce-ecr-backend:latest
+          echo "Setting backend image to $ECR_URI in staging"
+          CURRENT_REPLICAS=$(kubectl get deployment ecommerce-backend -n staging -o jsonpath='{.spec.replicas}' 2>/dev/null || echo "2")
+          if [ -z "${CURRENT_REPLICAS}" ]; then CURRENT_REPLICAS=2; fi
+          if [ "${CURRENT_REPLICAS}" -gt 1 ]; then
+            kubectl scale deployment ecommerce-backend -n staging --replicas=1 || true
+            kubectl rollout status deployment/ecommerce-backend -n staging --timeout=120s || true
+          fi
+          kubectl set image deployment/ecommerce-backend -n staging backend=$ECR_URI --record
+          kubectl rollout restart deployment/ecommerce-backend -n staging || true
+          kubectl rollout status deployment/ecommerce-backend -n staging --timeout=180s || true
+          if [ "${CURRENT_REPLICAS}" -gt 1 ]; then
+            kubectl scale deployment ecommerce-backend -n staging --replicas=${CURRENT_REPLICAS} || true
+            kubectl rollout status deployment/ecommerce-backend -n staging --timeout=180s || true
+          fi
+
       - name: Apply HPA (frontend) to staging
         run: |
           kubectl apply -f k8s/frontend-hpa.yaml -n staging || true
