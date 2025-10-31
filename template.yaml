@@ -77,7 +77,7 @@ Resources:
     Type: AWS::Serverless::Function
     Properties:
       FunctionName: !Sub '${AWS::StackName}-ProductsProcessor'
-      Handler: streamHandler.handler
+      Handler: lambda/streamHandler.handler
       CodeUri: backend/
       Policies:
         - DynamoDBCrudPolicy:
